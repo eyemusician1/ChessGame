@@ -1,0 +1,231 @@
+﻿<Window x:Class="ChessGame.MainWindow"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+      xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+      xmlns:local="clr-namespace:ChessGame"
+      xmlns:controls="clr-namespace:ChessGame.Controls"
+      mc:Ignorable="d"
+      Title="MSU Chess" Height="700" Width="1000"
+      WindowStartupLocation="CenterScreen"
+      Background="#1E1E1E">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <!-- Modern button style -->
+            <Style x:Key="ModernButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="#2D2D30"/>
+                <Setter Property="Foreground" Value="#FFFFFF"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Padding" Value="15,8"/>
+                <Setter Property="Margin" Value="5"/>
+                <Setter Property="FontSize" Value="14"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" 
+                                  CornerRadius="4" 
+                                  BorderThickness="{TemplateBinding BorderThickness}" 
+                                  BorderBrush="{TemplateBinding BorderBrush}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#3E3E42"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter Property="Background" Value="#007ACC"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Background" Value="#252526"/>
+                                    <Setter Property="Foreground" Value="#6D6D6D"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Modern text block style -->
+            <Style x:Key="ModernTextBlockStyle" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="#CCCCCC"/>
+                <Setter Property="FontSize" Value="14"/>
+                <Setter Property="Margin" Value="5"/>
+            </Style>
+
+            <!-- Modern list box style -->
+            <Style x:Key="ModernListBoxStyle" TargetType="ListBox">
+                <Setter Property="Background" Value="#252526"/>
+                <Setter Property="Foreground" Value="#CCCCCC"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Padding" Value="5"/>
+                <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+                <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+            </Style>
+
+            <!-- Modern list box item style -->
+            <Style x:Key="ModernListBoxItemStyle" TargetType="ListBoxItem">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Padding" Value="8,4"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ListBoxItem">
+                            <Border Background="{TemplateBinding Background}" 
+                                  Padding="{TemplateBinding Padding}">
+                                <ContentPresenter/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Background" Value="#007ACC"/>
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#3E3E42"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Modern progress bar style -->
+            <Style x:Key="ModernProgressBarStyle" TargetType="ProgressBar">
+                <Setter Property="Background" Value="#252526"/>
+                <Setter Property="Foreground" Value="#007ACC"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Height" Value="4"/>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="300"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Left side - Chess board and status -->
+        <Grid Grid.Column="0" Margin="20">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Game status -->
+            <Border Grid.Row="0" Background="#252526" CornerRadius="4" Padding="10" Margin="0,0,0,10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                        <Ellipse x:Name="CurrentPlayerIndicator" Width="12" Height="12" Fill="White" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="CurrentPlayerText" Text="White to move" Style="{StaticResource ModernTextBlockStyle}" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <TextBlock x:Name="GameStatusText" Grid.Column="1" Text="Game in progress" Style="{StaticResource ModernTextBlockStyle}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+
+                    <TextBlock x:Name="MoveNumberText" Grid.Column="2" Text="Move: 1" Style="{StaticResource ModernTextBlockStyle}" VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+
+            <!-- Chess board -->
+            <Border Grid.Row="1" Background="#252526" CornerRadius="4" Padding="20">
+                <controls:ChessBoardControl x:Name="ChessBoard" />
+            </Border>
+
+            <!-- AI thinking progress -->
+            <Border Grid.Row="2" Background="#252526" CornerRadius="4" Padding="10" Margin="0,10,0,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock x:Name="AIStatusText" Grid.Row="0" Text="AI is thinking..." Style="{StaticResource ModernTextBlockStyle}" Visibility="Collapsed"/>
+                    <ProgressBar x:Name="AIProgressBar" Grid.Row="1" Style="{StaticResource ModernProgressBarStyle}" Visibility="Collapsed"/>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Right side - Game controls and move history -->
+        <Grid Grid.Column="1" Margin="0,20,20,20">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Game controls -->
+            <Border Grid.Row="0" Background="#252526" CornerRadius="4" Padding="15" Margin="0,0,0,10">
+                <StackPanel>
+                    <TextBlock Text="Game Controls" Style="{StaticResource ModernTextBlockStyle}" FontWeight="Bold" Margin="0,0,0,10"/>
+
+                    <Button x:Name="NewGameButton" Content="New Game" Style="{StaticResource ModernButtonStyle}" Click="NewGameButton_Click" Margin="0,5"/>
+                    <Button x:Name="UndoMoveButton" Content="Undo Move" Style="{StaticResource ModernButtonStyle}" Click="UndoMoveButton_Click" Margin="0,5"/>
+                    <Button x:Name="GetHintButton" Content="Get Hint" Style="{StaticResource ModernButtonStyle}" Click="GetHintButton_Click" Margin="0,5"/>
+
+                    <Separator Margin="0,10" Background="#3E3E42"/>
+
+                    <TextBlock Text="AI Difficulty" Style="{StaticResource ModernTextBlockStyle}" Margin="0,5"/>
+                    <Slider x:Name="AIDifficultySlider" Minimum="1" Maximum="5" Value="3" IsSnapToTickEnabled="True" TickFrequency="1" Margin="0,5"/>
+                    <Grid Margin="0,5">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Easy" Style="{StaticResource ModernTextBlockStyle}" FontSize="12" HorizontalAlignment="Left"/>
+                        <TextBlock Grid.Column="1" Text="Medium" Style="{StaticResource ModernTextBlockStyle}" FontSize="12" HorizontalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Text="Hard" Style="{StaticResource ModernTextBlockStyle}" FontSize="12" HorizontalAlignment="Right"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Move history -->
+            <Border Grid.Row="1" Background="#252526" CornerRadius="4" Padding="15" Margin="0,0,0,10">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="Move History" Style="{StaticResource ModernTextBlockStyle}" FontWeight="Bold" Margin="0,0,0,10"/>
+
+                    <ListBox x:Name="MoveHistoryListBox" Grid.Row="1" Style="{StaticResource ModernListBoxStyle}" ItemContainerStyle="{StaticResource ModernListBoxItemStyle}"/>
+                </Grid>
+            </Border>
+
+            <!-- Game information -->
+            <Border Grid.Row="2" Background="#252526" CornerRadius="4" Padding="15">
+                <StackPanel>
+                    <TextBlock Text="Game Information" Style="{StaticResource ModernTextBlockStyle}" FontWeight="Bold" Margin="0,0,0,10"/>
+
+                    <Grid Margin="0,5">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="White: " Style="{StaticResource ModernTextBlockStyle}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="Human" Style="{StaticResource ModernTextBlockStyle}"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Black: " Style="{StaticResource ModernTextBlockStyle}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="AI" Style="{StaticResource ModernTextBlockStyle}"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="PGN: " Style="{StaticResource ModernTextBlockStyle}"/>
+                        <TextBlock x:Name="PgnText" Grid.Row="2" Grid.Column="1" Text="" Style="{StaticResource ModernTextBlockStyle}" TextWrapping="Wrap"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>
+

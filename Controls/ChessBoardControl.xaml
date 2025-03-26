@@ -1,0 +1,90 @@
+﻿<UserControl x:Class="ChessGame.Controls.ChessBoardControl"
+           xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+           xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+           xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+           xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+           xmlns:local="clr-namespace:ChessGame.Controls"
+           mc:Ignorable="d" 
+           d:DesignHeight="450" d:DesignWidth="450">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- File labels (top) -->
+        <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
+            <TextBlock Text="a" Foreground="#CCCCCC" Width="50" TextAlignment="Center" Margin="0,0,0,5"/>
+            <TextBlock Text="b" Foreground="#CCCCCC" Width="50" TextAlignment="Center" Margin="0,0,0,5"/>
+            <TextBlock Text="c" Foreground="#CCCCCC" Width="50" TextAlignment="Center" Margin="0,0,0,5"/>
+            <TextBlock Text="d" Foreground="#CCCCCC" Width="50" TextAlignment="Center" Margin="0,0,0,5"/>
+            <TextBlock Text="e" Foreground="#CCCCCC" Width="50" TextAlignment="Center" Margin="0,0,0,5"/>
+            <TextBlock Text="f" Foreground="#CCCCCC" Width="50" TextAlignment="Center" Margin="0,0,0,5"/>
+            <TextBlock Text="g" Foreground="#CCCCCC" Width="50" TextAlignment="Center" Margin="0,0,0,5"/>
+            <TextBlock Text="h" Foreground="#CCCCCC" Width="50" TextAlignment="Center" Margin="0,0,0,5"/>
+        </StackPanel>
+
+        <!-- Rank labels (left) -->
+        <StackPanel Grid.Row="1" Grid.Column="0" VerticalAlignment="Center">
+            <TextBlock Text="8" Foreground="#CCCCCC" Height="50" TextAlignment="Center" VerticalAlignment="Center" Margin="5,0"/>
+            <TextBlock Text="7" Foreground="#CCCCCC" Height="50" TextAlignment="Center" VerticalAlignment="Center" Margin="5,0"/>
+            <TextBlock Text="6" Foreground="#CCCCCC" Height="50" TextAlignment="Center" VerticalAlignment="Center" Margin="5,0"/>
+            <TextBlock Text="5" Foreground="#CCCCCC" Height="50" TextAlignment="Center" VerticalAlignment="Center" Margin="5,0"/>
+            <TextBlock Text="4" Foreground="#CCCCCC" Height="50" TextAlignment="Center" VerticalAlignment="Center" Margin="5,0"/>
+            <TextBlock Text="3" Foreground="#CCCCCC" Height="50" TextAlignment="Center" VerticalAlignment="Center" Margin="5,0"/>
+            <TextBlock Text="2" Foreground="#CCCCCC" Height="50" TextAlignment="Center" VerticalAlignment="Center" Margin="5,0"/>
+            <TextBlock Text="1" Foreground="#CCCCCC" Height="50" TextAlignment="Center" VerticalAlignment="Center" Margin="5,0"/>
+        </StackPanel>
+
+        <!-- Rank labels (right) -->
+        <StackPanel Grid.Row="1" Grid.Column="2" VerticalAlignment="Center">
+            <TextBlock Text="8" Foreground="#CCCCCC" Height="50" TextAlignment="Center" VerticalAlignment="Center" Margin="5,0"/>
+            <TextBlock Text="7" Foreground="#CCCCCC" Height="50" TextAlignment="Center" VerticalAlignment="Center" Margin="5,0"/>
+            <TextBlock Text="6" Foreground="#CCCCCC" Height="50" TextAlignment="Center" VerticalAlignment="Center" Margin="5,0"/>
+            <TextBlock Text="5" Foreground="#CCCCCC" Height="50" TextAlignment="Center" VerticalAlignment="Center" Margin="5,0"/>
+            <TextBlock Text="4" Foreground="#CCCCCC" Height="50" TextAlignment="Center" VerticalAlignment="Center" Margin="5,0"/>
+            <TextBlock Text="3" Foreground="#CCCCCC" Height="50" TextAlignment="Center" VerticalAlignment="Center" Margin="5,0"/>
+            <TextBlock Text="2" Foreground="#CCCCCC" Height="50" TextAlignment="Center" VerticalAlignment="Center" Margin="5,0"/>
+            <TextBlock Text="1" Foreground="#CCCCCC" Height="50" TextAlignment="Center" VerticalAlignment="Center" Margin="5,0"/>
+        </StackPanel>
+
+        <!-- File labels (bottom) -->
+        <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
+            <TextBlock Text="a" Foreground="#CCCCCC" Width="50" TextAlignment="Center" Margin="0,5,0,0"/>
+            <TextBlock Text="b" Foreground="#CCCCCC" Width="50" TextAlignment="Center" Margin="0,5,0,0"/>
+            <TextBlock Text="c" Foreground="#CCCCCC" Width="50" TextAlignment="Center" Margin="0,5,0,0"/>
+            <TextBlock Text="d" Foreground="#CCCCCC" Width="50" TextAlignment="Center" Margin="0,5,0,0"/>
+            <TextBlock Text="e" Foreground="#CCCCCC" Width="50" TextAlignment="Center" Margin="0,5,0,0"/>
+            <TextBlock Text="f" Foreground="#CCCCCC" Width="50" TextAlignment="Center" Margin="0,5,0,0"/>
+            <TextBlock Text="g" Foreground="#CCCCCC" Width="50" TextAlignment="Center" Margin="0,5,0,0"/>
+            <TextBlock Text="h" Foreground="#CCCCCC" Width="50" TextAlignment="Center" Margin="0,5,0,0"/>
+        </StackPanel>
+
+        <!-- Chess board -->
+        <Border Grid.Row="1" Grid.Column="1" BorderBrush="#3E3E42" BorderThickness="2" ClipToBounds="True">
+            <Viewbox Stretch="Uniform">
+                <Grid x:Name="BoardContainer" Width="400" Height="400">
+                    <!-- The board grid with squares -->
+                    <UniformGrid x:Name="BoardGrid" Rows="8" Columns="8"/>
+
+                    <!-- Canvas for highlights -->
+                    <Canvas x:Name="HighlightCanvas" IsHitTestVisible="False" Width="400" Height="400"/>
+
+                    <!-- Canvas for move indicators -->
+                    <Canvas x:Name="MoveIndicatorCanvas" IsHitTestVisible="False" Width="400" Height="400"/>
+
+                    <!-- Canvas for pieces -->
+                    <Canvas x:Name="PiecesCanvas" IsHitTestVisible="False" Width="400" Height="400"/>
+                </Grid>
+            </Viewbox>
+        </Border>
+    </Grid>
+</UserControl>
+
