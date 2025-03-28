@@ -79,6 +79,7 @@ namespace ChessGame.Models
 		private List<Move> moveHistory;
 		private int halfMoveClock; // For fifty-move rule
 		private Dictionary<string, int> positionHistory; // For threefold repetition
+		private int aiDepth;
 
 		/// <summary>
 		/// Gets the current state of the game.
@@ -89,6 +90,11 @@ namespace ChessGame.Models
 		/// Gets the current player.
 		/// </summary>
 		public Player CurrentPlayer => currentPlayer;
+
+		/// <summary>
+		/// Gets the black player.
+		/// </summary>
+		public Player BlackPlayer => blackPlayer;
 
 		/// <summary>
 		/// Gets the current move number (starts at 1).
@@ -133,12 +139,14 @@ namespace ChessGame.Models
 		/// <param name="aiDepth">The search depth for the AI player.</param>
 		private void Initialize(int aiDepth)
 		{
+			this.aiDepth = Math.Max(1, Math.Min(5, aiDepth)); // Ensure depth is between 1 and 5
+
 			// Create a new board to ensure clean state
 			board = new Board();
 
 			// Create new player instances
 			whitePlayer = new HumanPlayer(PieceColor.White);
-			blackPlayer = new AIPlayer(PieceColor.Black, aiDepth);
+			blackPlayer = new AIPlayer(PieceColor.Black, this.aiDepth);
 
 			currentPlayer = whitePlayer; // White goes first
 			State = GameState.InProgress;

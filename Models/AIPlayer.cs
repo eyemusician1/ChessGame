@@ -32,9 +32,11 @@ namespace ChessGame.Models
 
 		public event EventHandler<AIThinkingEventArgs> ThinkingProgress;
 
+		public int Depth => depth;
+
 		public AIPlayer(PieceColor color, int depth = 3) : base(color)
 		{
-			this.depth = depth;
+			this.depth = Math.Max(1, Math.Min(5, depth)); // Ensure depth is between 1 and 5
 		}
 
 		public override Move GetMove(Board board)

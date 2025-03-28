@@ -22,6 +22,7 @@ namespace ChessGame.Controls
 		private Position selectedPosition;
 		private List<Position> validMovePositions;
 		private Move lastMove;
+		private bool isInitialized = false;
 
 		// Events
 		public event EventHandler<MoveEventArgs> MoveCompleted;
@@ -61,9 +62,13 @@ namespace ChessGame.Controls
 			{
 				this.game.BoardUpdated -= Game_BoardUpdated;
 
-				if (this.game.CurrentPlayer is AIPlayer oldAiPlayer)
+				// Find and unsubscribe from any AI players
+				foreach (var player in new[] { this.game.CurrentPlayer })
 				{
-					oldAiPlayer.ThinkingProgress -= AIPlayer_ThinkingProgress;
+					if (player is AIPlayer aiPlayer)
+					{
+						aiPlayer.ThinkingProgress -= AIPlayer_ThinkingProgress;
+					}
 				}
 			}
 
@@ -73,10 +78,13 @@ namespace ChessGame.Controls
 			// Subscribe to game events
 			game.BoardUpdated += Game_BoardUpdated;
 
-			// Subscribe to AI thinking events if the black player is an AI
-			if (game.CurrentPlayer is AIPlayer aiPlayer)
+			// Subscribe to AI thinking events if any player is an AI
+			foreach (var player in new[] { game.CurrentPlayer })
 			{
-				aiPlayer.ThinkingProgress += AIPlayer_ThinkingProgress;
+				if (player is AIPlayer aiPlayer)
+				{
+					aiPlayer.ThinkingProgress += AIPlayer_ThinkingProgress;
+				}
 			}
 
 			// Clear any existing pieces
@@ -94,6 +102,8 @@ namespace ChessGame.Controls
 
 			// Update the board
 			UpdateBoard();
+
+			isInitialized = true;
 		}
 
 		private void AIPlayer_ThinkingProgress(object sender, AIThinkingEventArgs e)
@@ -338,14 +348,14 @@ namespace ChessGame.Controls
 			// Clear highlights
 			ClearHighlights();
 
-			// Update pieces
-			UpdatePieces();
+			// Update pieces - completely rebuild the pieces display
+			RebuildPieces();
 
 			// Highlight the last move
 			HighlightLastMove();
 		}
 
-		private void UpdatePieces()
+		private void RebuildPieces()
 		{
 			if (game == null)
 				return;

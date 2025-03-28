@@ -90,8 +90,27 @@ namespace ChessGame.Models
 
 		private void SetPiece(int x, int y, Piece piece)
 		{
+			// Remove any existing piece at this position
+			if (pieces[x, y] != null && piecePositions.ContainsKey(pieces[x, y]))
+			{
+				piecePositions.Remove(pieces[x, y]);
+			}
+
+			// Set the new piece
 			pieces[x, y] = piece;
-			piecePositions[piece] = new Position(x, y);
+
+			// Update the position dictionary
+			if (piece != null)
+			{
+				// Remove any existing entry for this piece (should not happen, but just in case)
+				if (piecePositions.ContainsKey(piece))
+				{
+					piecePositions.Remove(piece);
+				}
+
+				// Add the new position
+				piecePositions[piece] = new Position(x, y);
+			}
 		}
 
 		public void Display()
@@ -265,11 +284,20 @@ namespace ChessGame.Models
 
 				// Move the rook
 				Piece rook = pieces[rookFromX, y];
+
+				// Update the board array
 				pieces[rookToX, y] = rook;
 				pieces[rookFromX, y] = null;
 
-				if (piecePositions.ContainsKey(rook))
+				// Update the position dictionary
+				if (rook != null)
+				{
+					if (piecePositions.ContainsKey(rook))
+					{
+						piecePositions.Remove(rook);
+					}
 					piecePositions[rook] = new Position(rookToX, y);
+				}
 			}
 
 			// Handle en passant capture
@@ -282,7 +310,15 @@ namespace ChessGame.Models
 					// Capture the pawn that just moved
 					int capturedPawnY = piece.Color == PieceColor.White ? move.ToY - 1 : move.ToY + 1;
 					capturedPiece = pieces[move.ToX, capturedPawnY];
+
+					// Update the board array
 					pieces[move.ToX, capturedPawnY] = null;
+
+					// Update the position dictionary
+					if (capturedPiece != null && piecePositions.ContainsKey(capturedPiece))
+					{
+						piecePositions.Remove(capturedPiece);
+					}
 
 					// Update the move record
 					record.CapturedPiece = capturedPiece;
@@ -326,20 +362,23 @@ namespace ChessGame.Models
 				enPassantTarget = new Position(move.ToX, y);
 			}
 
-			// Move the piece
-			Piece movingPiece = pieces[move.FromX, move.FromY];
-			pieces[move.ToX, move.ToY] = movingPiece;
+			// Update the board array
+			pieces[move.ToX, move.ToY] = piece;
 			pieces[move.FromX, move.FromY] = null;
 
-			// Update the piece position in the dictionary
-			if (piecePositions.ContainsKey(movingPiece))
+			// Update the position dictionary
+			if (piece != null)
 			{
-				piecePositions.Remove(movingPiece);
-				piecePositions.Add(movingPiece, new Position(move.ToX, move.ToY));
+				if (piecePositions.ContainsKey(piece))
+				{
+					piecePositions.Remove(piece);
+				}
+				piecePositions[piece] = new Position(move.ToX, move.ToY);
 			}
-			else
+
+			if (capturedPiece != null && piecePositions.ContainsKey(capturedPiece))
 			{
-				piecePositions.Add(movingPiece, new Position(move.ToX, move.ToY));
+				piecePositions.Remove(capturedPiece);
 			}
 
 			// Handle pawn promotion
@@ -350,16 +389,19 @@ namespace ChessGame.Models
 				{
 					// Promote to queen by default
 					Queen queen = new Queen(piece.Color);
+
+					// Update the board array
 					pieces[move.ToX, move.ToY] = queen;
+
+					// Update the position dictionary
+					if (piecePositions.ContainsKey(piece))
+					{
+						piecePositions.Remove(piece);
+					}
+					piecePositions[queen] = new Position(move.ToX, move.ToY);
 
 					// Update the move record
 					record.PromotedPiece = queen;
-
-					// Update piece positions
-					if (piecePositions.ContainsKey(piece))
-						piecePositions.Remove(piece);
-
-					piecePositions[queen] = new Position(move.ToX, move.ToY);
 				}
 			}
 		}
@@ -381,10 +423,14 @@ namespace ChessGame.Models
 
 				// Update piece positions
 				if (piecePositions.ContainsKey(record.PromotedPiece))
+				{
 					piecePositions.Remove(record.PromotedPiece);
+				}
 
 				if (record.Piece != null)
+				{
 					piecePositions[record.Piece] = new Position(record.Move.FromX, record.Move.FromY);
+				}
 			}
 			else
 			{
@@ -392,7 +438,14 @@ namespace ChessGame.Models
 
 				// Update piece positions
 				if (record.Piece != null)
+				{
 					piecePositions[record.Piece] = new Position(record.Move.FromX, record.Move.FromY);
+				}
+
+				if (record.CapturedPiece != null)
+				{
+					piecePositions[record.CapturedPiece] = new Position(record.Move.ToX, record.Move.ToY);
+				}
 			}
 
 			// Handle en passant capture
@@ -404,7 +457,9 @@ namespace ChessGame.Models
 				pieces[record.Move.ToX, capturedPawnY] = record.CapturedPiece;
 
 				if (record.CapturedPiece != null)
+				{
 					piecePositions[record.CapturedPiece] = new Position(record.Move.ToX, capturedPawnY);
+				}
 			}
 
 			// Handle castling
@@ -421,8 +476,10 @@ namespace ChessGame.Models
 				pieces[rookToX, y] = rook;
 				pieces[rookFromX, y] = null;
 
-				if (piecePositions.ContainsKey(rook))
+				if (rook != null && piecePositions.ContainsKey(rook))
+				{
 					piecePositions[rook] = new Position(rookToX, y);
+				}
 			}
 
 			// Restore castling flags
@@ -528,15 +585,34 @@ namespace ChessGame.Models
 			Piece piece = pieces[move.FromX, move.FromY];
 			Piece capturedPiece = pieces[move.ToX, move.ToY];
 
+			// Save original positions
+			Position originalPiecePos = null;
+			Position originalCapturedPos = null;
+
+			if (piecePositions.ContainsKey(piece))
+			{
+				originalPiecePos = piecePositions[piece];
+			}
+
+			if (capturedPiece != null && piecePositions.ContainsKey(capturedPiece))
+			{
+				originalCapturedPos = piecePositions[capturedPiece];
+			}
+
+			// Make the move
 			pieces[move.ToX, move.ToY] = piece;
 			pieces[move.FromX, move.FromY] = null;
 
 			// Update piece position temporarily
-			Position originalPos = null;
 			if (piecePositions.ContainsKey(piece))
 			{
-				originalPos = piecePositions[piece];
 				piecePositions[piece] = new Position(move.ToX, move.ToY);
+			}
+
+			// Remove captured piece temporarily
+			if (capturedPiece != null && piecePositions.ContainsKey(capturedPiece))
+			{
+				piecePositions.Remove(capturedPiece);
 			}
 
 			// Check if the king is in check
@@ -546,9 +622,23 @@ namespace ChessGame.Models
 			pieces[move.FromX, move.FromY] = piece;
 			pieces[move.ToX, move.ToY] = capturedPiece;
 
-			// Restore original position
-			if (originalPos != null && piecePositions.ContainsKey(piece))
-				piecePositions[piece] = originalPos;
+			// Restore original positions
+			if (originalPiecePos != null && piecePositions.ContainsKey(piece))
+			{
+				piecePositions[piece] = originalPiecePos;
+			}
+
+			if (capturedPiece != null)
+			{
+				if (originalCapturedPos != null)
+				{
+					piecePositions[capturedPiece] = originalCapturedPos;
+				}
+				else
+				{
+					piecePositions.Add(capturedPiece, new Position(move.ToX, move.ToY));
+				}
+			}
 
 			return inCheck;
 		}
@@ -635,75 +725,75 @@ namespace ChessGame.Models
 
 			// Pawns prefer to advance and control the center
 			int[,] pawnTable = {
-				{0,  0,  0,  0,  0,  0,  0,  0},
-				{50, 50, 50, 50, 50, 50, 50, 50},
-				{10, 10, 20, 30, 30, 20, 10, 10},
-				{5,  5, 10, 25, 25, 10,  5,  5},
-				{0,  0,  0, 20, 20,  0,  0,  0},
-				{5, -5,-10,  0,  0,-10, -5,  5},
-				{5, 10, 10,-20,-20, 10, 10,  5},
-				{0,  0,  0,  0,  0,  0,  0,  0}
-			};
+			{0,  0,  0,  0,  0,  0,  0,  0},
+			{50, 50, 50, 50, 50, 50, 50, 50},
+			{10, 10, 20, 30, 30, 20, 10, 10},
+			{5,  5, 10, 25, 25, 10,  5,  5},
+			{0,  0,  0, 20, 20,  0,  0,  0},
+			{5, -5,-10,  0,  0,-10, -5,  5},
+			{5, 10, 10,-20,-20, 10, 10,  5},
+			{0,  0,  0,  0,  0,  0,  0,  0}
+		};
 
 			// Knights prefer the center and avoid edges
 			int[,] knightTable = {
-				{-50,-40,-30,-30,-30,-30,-40,-50},
-				{-40,-20,  0,  0,  0,  0,-20,-40},
-				{-30,  0, 10, 15, 15, 10,  0,-30},
-				{-30,  5, 15, 20, 20, 15,  5,-30},
-				{-30,  0, 15, 20, 20, 15,  0,-30},
-				{-30,  5, 10, 15, 15, 10,  5,-30},
-				{-40,-20,  0,  5,  5,  0,-20,-40},
-				{-50,-40,-30,-30,-30,-30,-40,-50}
-			};
+			{-50,-40,-30,-30,-30,-30,-40,-50},
+			{-40,-20,  0,  0,  0,  0,-20,-40},
+			{-30,  0, 10, 15, 15, 10,  0,-30},
+			{-30,  5, 15, 20, 20, 15,  5,-30},
+			{-30,  0, 15, 20, 20, 15,  0,-30},
+			{-30,  5, 10, 15, 15, 10,  5,-30},
+			{-40,-20,  0,  5,  5,  0,-20,-40},
+			{-50,-40,-30,-30,-30,-30,-40,-50}
+		};
 
 			// Bishops prefer diagonals
 			int[,] bishopTable = {
-				{-20,-10,-10,-10,-10,-10,-10,-20},
-				{-10,  0,  0,  0,  0,  0,  0,-10},
-				{-10,  0, 10, 10, 10, 10,  0,-10},
-				{-10,  5,  5, 10, 10,  5,  5,-10},
-				{-10,  0,  5, 10, 10,  5,  0,-10},
-				{-10,  5,  5,  5,  5,  5,  5,-10},
-				{-10,  0,  5,  0,  0,  5,  0,-10},
-				{-20,-10,-10,-10,-10,-10,-10,-20}
-			};
+			{-20,-10,-10,-10,-10,-10,-10,-20},
+			{-10,  0,  0,  0,  0,  0,  0,-10},
+			{-10,  0, 10, 10, 10, 10,  0,-10},
+			{-10,  5,  5, 10, 10,  5,  5,-10},
+			{-10,  0,  5, 10, 10,  5,  0,-10},
+			{-10,  5,  5,  5,  5,  5,  5,-10},
+			{-10,  0,  5,  0,  0,  5,  0,-10},
+			{-20,-10,-10,-10,-10,-10,-10,-20}
+		};
 
 			// Rooks prefer open files and 7th rank
 			int[,] rookTable = {
-				{0,  0,  0,  0,  0,  0,  0,  0},
-				{5, 10, 10, 10, 10, 10, 10,  5},
-				{-5,  0,  0,  0,  0,  0,  0, -5},
-				{-5,  0,  0,  0,  0,  0,  0, -5},
-				{-5,  0,  0,  0,  0,  0,  0, -5},
-				{-5,  0,  0,  0,  0,  0,  0, -5},
-				{-5,  0,  0,  0,  0,  0,  0, -5},
-				{0,  0,  0,  5,  5,  0,  0,  0}
-			};
+			{0,  0,  0,  0,  0,  0,  0,  0},
+			{5, 10, 10, 10, 10, 10, 10,  5},
+			{-5,  0,  0,  0,  0,  0,  0, -5},
+			{-5,  0,  0,  0,  0,  0,  0, -5},
+			{-5,  0,  0,  0,  0,  0,  0, -5},
+			{-5,  0,  0,  0,  0,  0,  0, -5},
+			{-5,  0,  0,  0,  0,  0,  0, -5},
+			{0,  0,  0,  5,  5,  0,  0,  0}
+		};
 
 			// Queens combine rook and bishop mobility
 			int[,] queenTable = {
-				{-20,-10,-10, -5, -5,-10,-10,-20},
-				{-10,  0,  0,  0,  0,  0,  0,-10},
-				{-10,  0,  5,  5,  5,  5,  0,-10},
-				{-5,  0,  5,  5,  5,  5,  0, -5},
-				{0,  0,  5,  5,  5,  5,  0, -5},
-				{-10,  5,  5,  5,  5,  5,  0,-10},
-				{-10,  0,  5,  0,  0,  0,  0,-10},
-				{-20,-10,-10, -5, -5,-10,-10,-20}
-			};
+			{-20,-10,-10, -5, -5,-10,-10,-20},
+			{-10,  0,  0,  0,  0,  0,  0,-10},
+			{-10,  0,  5,  5,  5,  5,  0,-10},
+			{-5,  0,  5,  5,  5,  5,  0, -5},
+			{0,  0,  5,  5,  5,  5,  0, -5},
+			{-10,  5,  5,  5,  5,  5,  0,-10},
+			{-10,  0,  5,  0,  0,  0,  0,-10},
+			{-20,-10,-10, -5, -5,-10,-10,-20}
+		};
 
 			// Kings prefer safety in early/mid game
 			int[,] kingMidGameTable = {
-				{-30,-40,-40,-50,-50,-40,-40,-30},
-				{-30,-40,-40,-50,-50,-40,-40,-30},
-				{-30,-40,-40,-50,-50,-40,-40,-30},
-				{-30,-40,-40,-50,-50,-40,-40,-30},
-				{-20,-30,-30,-40,-40,-30,-30,-20},
-				{-10,-20,-20,-20,-20,-20,-20,-10},
-				{20, 20,  0,  0,  0,  0, 20, 20},
-				{20, 30, 10,  0,  0, 10, 30, 20}
-			};
+			{-30,-40,-40,-50,-50,-40,-40,-30},
+			{-30,-40,-40,-50,-50,-40,-40,-30},
+			{-30,-40,-40,-50,-50,-40,-40,-30},
+			{-30,-40,-40,-50,-50,-40,-40,-30},
+			{-20,-30,-30,-40,-40,-30,-30,-20},
+			{-10,-20,-20,-20,-20,-20,-20,-10},
+			{20, 20,  0,  0,  0,  0, 20, 20},
+			{20, 30, 10,  0,  0, 10, 30, 20}
+		};
 
 			// Flip the tables for black pieces
 			int x = pos.X;

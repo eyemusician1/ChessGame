@@ -44,12 +44,6 @@ namespace ChessGame
 				{
 					game.BoardUpdated -= Game_BoardUpdated;
 					game.GameStateChanged -= Game_GameStateChanged;
-
-					// Explicitly dispose of any AI player resources
-					if (game.CurrentPlayer is AIPlayer aiPlayer)
-					{
-						aiPlayer.ThinkingProgress -= AIPlayer_ThinkingProgress;
-					}
 				}
 
 				// Get AI difficulty from slider
@@ -78,11 +72,6 @@ namespace ChessGame
 			{
 				isInitializing = false;
 			}
-		}
-
-		private void AIPlayer_ThinkingProgress(object sender, AIThinkingEventArgs e)
-		{
-			// This is needed to properly unsubscribe from the event
 		}
 
 		private void Game_BoardUpdated(object sender, BoardUpdatedEventArgs e)
@@ -231,10 +220,29 @@ namespace ChessGame
 		{
 			// Only reinitialize if the game is already in progress, the value has actually changed,
 			// and we're not already in the process of initializing
-			if (game != null && e.OldValue != e.NewValue && !isInitializing)
+			if (game != null && Math.Abs(e.OldValue - e.NewValue) >= 1.0 && !isInitializing)
 			{
 				InitializeGame();
 			}
+		}
+
+		protected override void OnClosed(EventArgs e)
+		{
+			// Clean up resources when the window is closed
+			if (game != null)
+			{
+				game.BoardUpdated -= Game_BoardUpdated;
+				game.GameStateChanged -= Game_GameStateChanged;
+			}
+
+			// Clean up ChessBoard resources
+			if (ChessBoard != null)
+			{
+				ChessBoard.MoveCompleted -= ChessBoard_MoveCompleted;
+				ChessBoard.AIThinking -= ChessBoard_AIThinking;
+			}
+
+			base.OnClosed(e);
 		}
 	}
 }
