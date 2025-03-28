@@ -88,9 +88,9 @@ namespace ChessGame.Models
 			SetPiece(7, 7, new Rook(PieceColor.Black));
 		}
 
-		private void SetPiece(int x, int y, Piece piece)
+		public void SetPiece(int x, int y, Piece piece)
 		{
-			// Remove any existing piece at this position
+			// Remove any existing piece at this position from the dictionary
 			if (pieces[x, y] != null && piecePositions.ContainsKey(pieces[x, y]))
 			{
 				piecePositions.Remove(pieces[x, y]);
@@ -102,9 +102,16 @@ namespace ChessGame.Models
 			// Update the position dictionary
 			if (piece != null)
 			{
-				// Remove any existing entry for this piece (should not happen, but just in case)
+				// Critical fix: Remove old position entry for this piece if it exists
 				if (piecePositions.ContainsKey(piece))
 				{
+					// Get the old position
+					Position oldPos = piecePositions[piece];
+					// Clear the old board position if needed
+					if (pieces[oldPos.X, oldPos.Y] == piece)
+					{
+						pieces[oldPos.X, oldPos.Y] = null;
+					}
 					piecePositions.Remove(piece);
 				}
 
@@ -285,19 +292,9 @@ namespace ChessGame.Models
 				// Move the rook
 				Piece rook = pieces[rookFromX, y];
 
-				// Update the board array
-				pieces[rookToX, y] = rook;
-				pieces[rookFromX, y] = null;
-
-				// Update the position dictionary
-				if (rook != null)
-				{
-					if (piecePositions.ContainsKey(rook))
-					{
-						piecePositions.Remove(rook);
-					}
-					piecePositions[rook] = new Position(rookToX, y);
-				}
+				// Use SetPiece to properly update the piece tracking
+				SetPiece(rookToX, y, rook);
+				SetPiece(rookFromX, y, null);
 			}
 
 			// Handle en passant capture
@@ -311,14 +308,8 @@ namespace ChessGame.Models
 					int capturedPawnY = piece.Color == PieceColor.White ? move.ToY - 1 : move.ToY + 1;
 					capturedPiece = pieces[move.ToX, capturedPawnY];
 
-					// Update the board array
-					pieces[move.ToX, capturedPawnY] = null;
-
-					// Update the position dictionary
-					if (capturedPiece != null && piecePositions.ContainsKey(capturedPiece))
-					{
-						piecePositions.Remove(capturedPiece);
-					}
+					// Use SetPiece to properly update the piece tracking
+					SetPiece(move.ToX, capturedPawnY, null);
 
 					// Update the move record
 					record.CapturedPiece = capturedPiece;
@@ -362,24 +353,9 @@ namespace ChessGame.Models
 				enPassantTarget = new Position(move.ToX, y);
 			}
 
-			// Update the board array
-			pieces[move.ToX, move.ToY] = piece;
-			pieces[move.FromX, move.FromY] = null;
-
-			// Update the position dictionary
-			if (piece != null)
-			{
-				if (piecePositions.ContainsKey(piece))
-				{
-					piecePositions.Remove(piece);
-				}
-				piecePositions[piece] = new Position(move.ToX, move.ToY);
-			}
-
-			if (capturedPiece != null && piecePositions.ContainsKey(capturedPiece))
-			{
-				piecePositions.Remove(capturedPiece);
-			}
+			// Use SetPiece to properly update the piece tracking
+			SetPiece(move.ToX, move.ToY, piece);
+			SetPiece(move.FromX, move.FromY, null);
 
 			// Handle pawn promotion
 			if (piece is Pawn)
@@ -390,15 +366,8 @@ namespace ChessGame.Models
 					// Promote to queen by default
 					Queen queen = new Queen(piece.Color);
 
-					// Update the board array
-					pieces[move.ToX, move.ToY] = queen;
-
-					// Update the position dictionary
-					if (piecePositions.ContainsKey(piece))
-					{
-						piecePositions.Remove(piece);
-					}
-					piecePositions[queen] = new Position(move.ToX, move.ToY);
+					// Use SetPiece to properly update the piece tracking
+					SetPiece(move.ToX, move.ToY, queen);
 
 					// Update the move record
 					record.PromotedPiece = queen;
@@ -513,8 +482,11 @@ namespace ChessGame.Models
 
 		private bool HasValidMoves(PieceColor color)
 		{
+			// Create a copy of the piece positions to avoid modification during enumeration
+			var piecePositionsCopy = piecePositions.ToList();
+
 			// Check all pieces of the given color
-			foreach (var entry in piecePositions)
+			foreach (var entry in piecePositionsCopy)
 			{
 				Piece piece = entry.Key;
 				Position pos = entry.Value;

@@ -30,6 +30,9 @@ namespace ChessGame.Models
 		private int movesEvaluated;
 		private int totalMovesToEvaluate;
 
+		// Transposition table for caching evaluations
+		private Dictionary<string, int> transpositionTable = new Dictionary<string, int>();
+
 		public event EventHandler<AIThinkingEventArgs> ThinkingProgress;
 
 		public int Depth => depth;
@@ -41,6 +44,9 @@ namespace ChessGame.Models
 
 		public override Move GetMove(Board board)
 		{
+			// Clear the transposition table for a new search
+			transpositionTable.Clear();
+
 			// Use minimax algorithm to find the best move
 			Move bestMove = null;
 			int bestScore = int.MinValue;
@@ -48,8 +54,8 @@ namespace ChessGame.Models
 			// Get all possible moves for the AI
 			List<Move> possibleMoves = GetAllPossibleMoves(board, Color);
 
-			// Randomize move order for more varied play
-			possibleMoves = possibleMoves.OrderBy(x => random.Next()).ToList();
+			// Pre-sort moves to improve alpha-beta pruning
+			possibleMoves = PreSortMoves(board, possibleMoves);
 
 			// Initialize progress tracking
 			movesEvaluated = 0;
@@ -94,25 +100,27 @@ namespace ChessGame.Models
 		{
 			List<Move> possibleMoves = new List<Move>();
 
-			for (int fromX = 0; fromX < 8; fromX++)
+			// Create a copy of the piece positions to avoid modification during enumeration
+			var piecePositionsCopy = board.GetPiecesByColor(color).ToList();
+
+			foreach (var entry in piecePositionsCopy)
 			{
-				for (int fromY = 0; fromY < 8; fromY++)
+				Piece piece = entry.Key;
+				Position pos = entry.Value;
+
+				// Skip if piece is null or position is invalid
+				if (piece == null || pos == null || pos.X < 0 || pos.X > 7 || pos.Y < 0 || pos.Y > 7)
+					continue;
+
+				for (int toX = 0; toX < 8; toX++)
 				{
-					Piece piece = board.GetPiece(fromX, fromY);
-
-					if (piece != null && piece.Color == color)
+					for (int toY = 0; toY < 8; toY++)
 					{
-						for (int toX = 0; toX < 8; toX++)
-						{
-							for (int toY = 0; toY < 8; toY++)
-							{
-								Move move = new Move(fromX, fromY, toX, toY, new DummyPlayer(color));
+						Move move = new Move(pos.X, pos.Y, toX, toY, new DummyPlayer(color));
 
-								if (board.IsValidMove(move))
-								{
-									possibleMoves.Add(move);
-								}
-							}
+						if (board.IsValidMove(move))
+						{
+							possibleMoves.Add(move);
 						}
 					}
 				}
@@ -121,11 +129,50 @@ namespace ChessGame.Models
 			return possibleMoves;
 		}
 
+		// Pre-sort moves to improve alpha-beta pruning efficiency
+		private List<Move> PreSortMoves(Board board, List<Move> moves)
+		{
+			return moves.OrderByDescending(move =>
+			{
+				int score = 0;
+
+				// Prioritize captures
+				Piece capturedPiece = board.GetPiece(move.ToX, move.ToY);
+				if (capturedPiece != null)
+				{
+					score += GetPieceValue(capturedPiece);
+				}
+
+				// Prioritize center control for pawns
+				Piece piece = board.GetPiece(move.FromX, move.FromY);
+				if (piece is Pawn)
+				{
+					int centerDistance = Math.Abs(move.ToX - 3) + Math.Abs(move.ToX - 4) +
+										Math.Abs(move.ToY - 3) + Math.Abs(move.ToY - 4);
+					score += (8 - centerDistance) * 5;
+				}
+
+				// Add some randomness to avoid predictable play
+				score += random.Next(5);
+
+				return score;
+			}).ToList();
+		}
+
 		private int Minimax(Board board, int depth, bool maximizingPlayer, int alpha, int beta, PieceColor maximizingColor)
 		{
+			// Generate a hash key for the current board position
+			string boardKey = GenerateBoardKey(board, depth, maximizingPlayer);
+
+			// Check if we've already evaluated this position
+			if (transpositionTable.ContainsKey(boardKey))
+			{
+				return transpositionTable[boardKey];
+			}
+
 			// Terminal conditions
 			if (depth == 0)
-				return board.Evaluate(maximizingColor);
+				return QuiescenceSearch(board, 3, alpha, beta, maximizingColor); // Use quiescence search for better evaluation
 
 			if (board.IsCheckmate(maximizingColor))
 				return -10000; // Being checkmated is very bad
@@ -141,17 +188,12 @@ namespace ChessGame.Models
 
 			List<Move> possibleMoves = GetAllPossibleMoves(board, currentColor);
 
+			// Early exit if no moves
+			if (possibleMoves.Count == 0)
+				return maximizingPlayer ? -9000 : 9000;
+
 			// Order moves to improve alpha-beta pruning
-			if (maximizingPlayer)
-			{
-				// Captures and checks first for maximizing player
-				possibleMoves = OrderMoves(board, possibleMoves);
-			}
-			else
-			{
-				// Captures and checks first for minimizing player
-				possibleMoves = OrderMoves(board, possibleMoves);
-			}
+			possibleMoves = OrderMoves(board, possibleMoves);
 
 			if (maximizingPlayer)
 			{
@@ -169,6 +211,9 @@ namespace ChessGame.Models
 					if (beta <= alpha)
 						break; // Beta cutoff
 				}
+
+				// Store the result in the transposition table
+				transpositionTable[boardKey] = maxEval;
 
 				return maxEval;
 			}
@@ -189,8 +234,111 @@ namespace ChessGame.Models
 						break; // Alpha cutoff
 				}
 
+				// Store the result in the transposition table
+				transpositionTable[boardKey] = minEval;
+
 				return minEval;
 			}
+		}
+
+		// Quiescence search to avoid horizon effect
+		private int QuiescenceSearch(Board board, int depth, int alpha, int beta, PieceColor maximizingColor)
+		{
+			// Base evaluation
+			int standPat = board.Evaluate(maximizingColor);
+
+			// Stand-pat cutoff
+			if (standPat >= beta)
+				return beta;
+			if (alpha < standPat)
+				alpha = standPat;
+
+			// Stop if maximum depth reached
+			if (depth <= 0)
+				return standPat;
+
+			// Get all capture moves
+			List<Move> captureMoves = GetCaptureMoves(board, maximizingColor);
+
+			// Order moves
+			captureMoves = OrderMoves(board, captureMoves);
+
+			foreach (Move move in captureMoves)
+			{
+				board.MakeMove(move);
+				int score = -QuiescenceSearch(board, depth - 1, -beta, -alpha,
+					maximizingColor == PieceColor.White ? PieceColor.Black : PieceColor.White);
+				board.UndoMove(move);
+
+				if (score >= beta)
+					return beta;
+				if (score > alpha)
+					alpha = score;
+			}
+
+			return alpha;
+		}
+
+		// Get only capture moves for quiescence search
+		private List<Move> GetCaptureMoves(Board board, PieceColor color)
+		{
+			List<Move> captureMoves = new List<Move>();
+
+			// Create a copy of the piece positions to avoid modification during enumeration
+			var piecePositionsCopy = board.GetPiecesByColor(color).ToList();
+
+			foreach (var entry in piecePositionsCopy)
+			{
+				Piece piece = entry.Key;
+				Position pos = entry.Value;
+
+				// Skip if piece is null or position is invalid
+				if (piece == null || pos == null || pos.X < 0 || pos.X > 7 || pos.Y < 0 || pos.Y > 7)
+					continue;
+
+				for (int toX = 0; toX < 8; toX++)
+				{
+					for (int toY = 0; toY < 8; toY++)
+					{
+						// Only consider moves that capture a piece
+						Piece targetPiece = board.GetPiece(toX, toY);
+						if (targetPiece != null && targetPiece.Color != color)
+						{
+							Move move = new Move(pos.X, pos.Y, toX, toY, new DummyPlayer(color));
+
+							if (board.IsValidMove(move))
+							{
+								captureMoves.Add(move);
+							}
+						}
+					}
+				}
+			}
+
+			return captureMoves;
+		}
+
+		// Generate a unique key for the current board position
+		private string GenerateBoardKey(Board board, int depth, bool maximizingPlayer)
+		{
+			// Simple implementation - can be improved with Zobrist hashing for better performance
+			string key = "";
+
+			for (int y = 0; y < 8; y++)
+			{
+				for (int x = 0; x < 8; x++)
+				{
+					Piece piece = board.GetPiece(x, y);
+					if (piece == null)
+						key += "-";
+					else
+						key += piece.Symbol;
+				}
+			}
+
+			key += "_" + depth + "_" + (maximizingPlayer ? "1" : "0");
+
+			return key;
 		}
 
 		private List<Move> OrderMoves(Board board, List<Move> moves)
@@ -210,11 +358,22 @@ namespace ChessGame.Models
 
 				// Check if move gives check
 				board.MakeMove(move);
-				if (board.IsInCheck(board.GetPiece(move.ToX, move.ToY).Color == PieceColor.White ?
-								   PieceColor.Black : PieceColor.White))
+
+				// Get the moved piece safely
+				Piece movedPiece = board.GetPiece(move.ToX, move.ToY);
+
+				// Only check for check if we have a valid piece
+				if (movedPiece != null)
 				{
-					score += 50;
+					PieceColor opponentColor = movedPiece.Color == PieceColor.White ?
+										   PieceColor.Black : PieceColor.White;
+
+					if (board.IsInCheck(opponentColor))
+					{
+						score += 50;
+					}
 				}
+
 				board.UndoMove(move);
 
 				return score;
@@ -223,6 +382,7 @@ namespace ChessGame.Models
 
 		private int GetPieceValue(Piece piece)
 		{
+			if (piece == null) return 0;
 			if (piece is Pawn) return 100;
 			if (piece is Knight) return 320;
 			if (piece is Bishop) return 330;

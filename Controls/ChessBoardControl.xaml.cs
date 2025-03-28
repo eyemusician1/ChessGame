@@ -63,7 +63,7 @@ namespace ChessGame.Controls
 				this.game.BoardUpdated -= Game_BoardUpdated;
 
 				// Find and unsubscribe from any AI players
-				foreach (var player in new[] { this.game.CurrentPlayer })
+				foreach (var player in new[] { this.game.CurrentPlayer, this.game.BlackPlayer })
 				{
 					if (player is AIPlayer aiPlayer)
 					{
@@ -79,7 +79,7 @@ namespace ChessGame.Controls
 			game.BoardUpdated += Game_BoardUpdated;
 
 			// Subscribe to AI thinking events if any player is an AI
-			foreach (var player in new[] { game.CurrentPlayer })
+			foreach (var player in new[] { game.CurrentPlayer, game.BlackPlayer })
 			{
 				if (player is AIPlayer aiPlayer)
 				{
@@ -355,6 +355,7 @@ namespace ChessGame.Controls
 			HighlightLastMove();
 		}
 
+		// Enhance the RebuildPieces method to completely rebuild from scratch
 		private void RebuildPieces()
 		{
 			if (game == null)
@@ -382,7 +383,7 @@ namespace ChessGame.Controls
 						// Add to canvas
 						PiecesCanvas.Children.Add(element);
 
-						// Store in dictionary with position as key
+						// Store in dictionary with position as key - use position key to avoid duplicates
 						string posKey = $"{x},{y}";
 						pieceElements[posKey] = element;
 					}

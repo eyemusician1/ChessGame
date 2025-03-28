@@ -6,6 +6,23 @@ using System.Text;
 
 namespace ChessGame.Models
 {
+	// Add a new event args class for pawn promotion
+	public class PawnPromotionEventArgs : EventArgs
+	{
+		public int X { get; }
+		public int Y { get; }
+		public PieceColor Color { get; }
+		public Piece PromotedPiece { get; set; }
+
+		public PawnPromotionEventArgs(int x, int y, PieceColor color)
+		{
+			X = x;
+			Y = y;
+			Color = color;
+			PromotedPiece = null; // Will be set by the handler
+		}
+	}
+
 	/// <summary>
 	/// Represents the state of a chess game.
 	/// </summary>
@@ -80,6 +97,8 @@ namespace ChessGame.Models
 		private int halfMoveClock; // For fifty-move rule
 		private Dictionary<string, int> positionHistory; // For threefold repetition
 		private int aiDepth;
+		private bool waitingForPromotion;
+		private Move pendingPromotionMove;
 
 		/// <summary>
 		/// Gets the current state of the game.
@@ -115,6 +134,11 @@ namespace ChessGame.Models
 		/// Event raised when the game state changes.
 		/// </summary>
 		public event EventHandler<GameStateChangedEventArgs> GameStateChanged;
+
+		/// <summary>
+		/// Event raised when a pawn needs to be promoted.
+		/// </summary>
+		public event EventHandler<PawnPromotionEventArgs> PawnPromotion;
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="Game"/> class.
@@ -153,6 +177,8 @@ namespace ChessGame.Models
 			moveHistory = new List<Move>();
 			halfMoveClock = 0;
 			positionHistory = new Dictionary<string, int>();
+			waitingForPromotion = false;
+			pendingPromotionMove = null;
 		}
 
 		/// <summary>
@@ -166,6 +192,8 @@ namespace ChessGame.Models
 			moveHistory.Clear();
 			halfMoveClock = 0;
 			positionHistory.Clear();
+			waitingForPromotion = false;
+			pendingPromotionMove = null;
 
 			// Add initial position to history
 			string initialPosition = GetBoardFen();
@@ -202,11 +230,37 @@ namespace ChessGame.Models
 		/// <returns>True if the move was valid and made; otherwise, false.</returns>
 		public bool MakeUIMove(Move move)
 		{
+			if (waitingForPromotion)
+				return false; // Don't allow new moves while waiting for promotion choice
+
 			if (State != GameState.InProgress)
 				return false;
 
 			if (!board.IsValidMove(move))
 				return false;
+
+			// Check if this is a pawn promotion move
+			Piece piece = board.GetPiece(move.FromX, move.FromY);
+			if (piece is Pawn &&
+				((piece.Color == PieceColor.White && move.ToY == 7) ||
+				 (piece.Color == PieceColor.Black && move.ToY == 0)))
+			{
+				// Store the move and wait for promotion choice
+				waitingForPromotion = true;
+				pendingPromotionMove = move;
+
+				// Raise the pawn promotion event
+				PawnPromotionEventArgs args = new PawnPromotionEventArgs(move.ToX, move.ToY, piece.Color);
+				OnPawnPromotion(args);
+
+				// If no handler set the promoted piece, default to Queen
+				if (args.PromotedPiece == null)
+				{
+					CompletePawnPromotion(new Queen(piece.Color));
+				}
+
+				return true;
+			}
 
 			// Make the move
 			bool captureOrPawnMove = MakeMoveInternal(move);
@@ -259,11 +313,70 @@ namespace ChessGame.Models
 		}
 
 		/// <summary>
+		/// Completes a pawn promotion with the selected piece.
+		/// </summary>
+		/// <param name="promotedPiece">The piece to promote to.</param>
+		public void CompletePawnPromotion(Piece promotedPiece)
+		{
+			if (!waitingForPromotion || pendingPromotionMove == null)
+				return;
+
+			// Make the move
+			bool captureOrPawnMove = MakeMoveInternal(pendingPromotionMove, promotedPiece);
+
+			// Reset promotion state
+			waitingForPromotion = false;
+			pendingPromotionMove = null;
+
+			// Update fifty-move rule counter
+			halfMoveClock = 0; // Pawn move always resets the counter
+
+			// Update position history for threefold repetition
+			string position = GetBoardFen();
+			if (!positionHistory.ContainsKey(position))
+				positionHistory[position] = 1;
+			else
+				positionHistory[position]++;
+
+			// Check for game end conditions
+			UpdateGameState();
+
+			// Notify listeners
+			OnBoardUpdated(new BoardUpdatedEventArgs(board));
+
+			if (State != GameState.InProgress)
+			{
+				OnGameStateChanged(new GameStateChangedEventArgs(State));
+				return;
+			}
+
+			// Switch players
+			currentPlayer = currentPlayer == whitePlayer ? blackPlayer : whitePlayer;
+
+			// If it's AI's turn, make AI move
+			if (currentPlayer is AIPlayer aiPlayer)
+			{
+				// Subscribe to AI thinking progress
+				aiPlayer.ThinkingProgress += (sender, e) =>
+				{
+					OnBoardUpdated(new BoardUpdatedEventArgs(board, $"AI thinking... {e.ProgressPercentage}%"));
+				};
+
+				Move aiMove = aiPlayer.GetMove(board);
+				if (aiMove != null)
+				{
+					MakeUIMove(aiMove);
+				}
+			}
+		}
+
+		/// <summary>
 		/// Makes a move and returns whether it was a capture or pawn move.
 		/// </summary>
 		/// <param name="move">The move to make.</param>
+		/// <param name="promotedPiece">Optional piece to promote to if this is a pawn promotion.</param>
 		/// <returns>True if the move was a capture or pawn move; otherwise, false.</returns>
-		private bool MakeMoveInternal(Move move)
+		private bool MakeMoveInternal(Move move, Piece promotedPiece = null)
 		{
 			Piece piece = board.GetPiece(move.FromX, move.FromY);
 			Piece capturedPiece = board.GetPiece(move.ToX, move.ToY);
@@ -273,6 +386,17 @@ namespace ChessGame.Models
 
 			// Add to history
 			moveHistory.Add(move);
+
+			// Handle pawn promotion if a specific piece was provided
+			if (promotedPiece != null && piece is Pawn)
+			{
+				if ((piece.Color == PieceColor.White && move.ToY == 7) ||
+					(piece.Color == PieceColor.Black && move.ToY == 0))
+				{
+					// Replace the pawn with the promoted piece
+					board.SetPiece(move.ToX, move.ToY, promotedPiece);
+				}
+			}
 
 			// Return true if it was a capture or pawn move (resets fifty-move rule)
 			return capturedPiece != null || piece is Pawn;
@@ -567,6 +691,15 @@ namespace ChessGame.Models
 		protected virtual void OnGameStateChanged(GameStateChangedEventArgs e)
 		{
 			GameStateChanged?.Invoke(this, e);
+		}
+
+		/// <summary>
+		/// Raises the PawnPromotion event.
+		/// </summary>
+		/// <param name="e">The event arguments.</param>
+		protected virtual void OnPawnPromotion(PawnPromotionEventArgs e)
+		{
+			PawnPromotion?.Invoke(this, e);
 		}
 	}
 }
