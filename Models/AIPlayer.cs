@@ -71,7 +71,7 @@ namespace ChessGame.Models
 				int score = Minimax(board, depth - 1, false, int.MinValue, int.MaxValue, Color);
 
 				// Undo the move
-				board.UndoMove(move);
+				board.UndoMove();
 
 				// Update best move
 				if (score > bestScore)
@@ -203,7 +203,7 @@ namespace ChessGame.Models
 				{
 					board.MakeMove(move);
 					int eval = Minimax(board, depth - 1, false, alpha, beta, maximizingColor);
-					board.UndoMove(move);
+					board.UndoMove();
 
 					maxEval = Math.Max(maxEval, eval);
 					alpha = Math.Max(alpha, eval);
@@ -225,7 +225,7 @@ namespace ChessGame.Models
 				{
 					board.MakeMove(move);
 					int eval = Minimax(board, depth - 1, true, alpha, beta, maximizingColor);
-					board.UndoMove(move);
+					board.UndoMove();
 
 					minEval = Math.Min(minEval, eval);
 					beta = Math.Min(beta, eval);
@@ -268,7 +268,7 @@ namespace ChessGame.Models
 				board.MakeMove(move);
 				int score = -QuiescenceSearch(board, depth - 1, -beta, -alpha,
 					maximizingColor == PieceColor.White ? PieceColor.Black : PieceColor.White);
-				board.UndoMove(move);
+				board.UndoMove();
 
 				if (score >= beta)
 					return beta;
@@ -374,7 +374,7 @@ namespace ChessGame.Models
 					}
 				}
 
-				board.UndoMove(move);
+				board.UndoMove();
 
 				return score;
 			}).ToList();

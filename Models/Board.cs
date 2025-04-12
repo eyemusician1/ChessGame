@@ -15,6 +15,12 @@ namespace ChessGame.Models
 		private Dictionary<Piece, Position> piecePositions;
 		private Stack<MoveRecord> moveRecords;
 
+		// Cache Kings for faster check detection
+		private King whiteKing;
+		private King blackKing;
+		private Position whiteKingPosition;
+		private Position blackKingPosition;
+
 		// For castling
 		private bool whiteKingMoved;
 		private bool blackKingMoved;
@@ -26,11 +32,16 @@ namespace ChessGame.Models
 		// For en passant
 		private Position enPassantTarget;
 
+		// For optimization: evaluation caching
+		private Dictionary<string, int> evaluationCache;
+		private const int EVALUATION_CACHE_SIZE = 1000;
+
 		public Board()
 		{
 			pieces = new Piece[8, 8];
 			piecePositions = new Dictionary<Piece, Position>();
 			moveRecords = new Stack<MoveRecord>();
+			evaluationCache = new Dictionary<string, int>(EVALUATION_CACHE_SIZE);
 
 			whiteKingMoved = false;
 			blackKingMoved = false;
@@ -40,6 +51,10 @@ namespace ChessGame.Models
 			blackRookHMoved = false;
 
 			enPassantTarget = null;
+			whiteKing = null;
+			blackKing = null;
+			whiteKingPosition = null;
+			blackKingPosition = null;
 		}
 
 		public void Initialize()
@@ -48,6 +63,7 @@ namespace ChessGame.Models
 			pieces = new Piece[8, 8];
 			piecePositions = new Dictionary<Piece, Position>();
 			moveRecords = new Stack<MoveRecord>();
+			evaluationCache.Clear();
 
 			// Reset castling flags
 			whiteKingMoved = false;
@@ -62,52 +78,86 @@ namespace ChessGame.Models
 			// Set up pawns - create new instances for each position
 			for (int i = 0; i < 8; i++)
 			{
-				SetPiece(i, 1, new Pawn(PieceColor.White));
-				SetPiece(i, 6, new Pawn(PieceColor.Black));
+				SetPieceDirectly(i, 1, new Pawn(PieceColor.White));
+				SetPieceDirectly(i, 6, new Pawn(PieceColor.Black));
 			}
 
 			// Set up other pieces - create new instances for each position
 			// White pieces
-			SetPiece(0, 0, new Rook(PieceColor.White));
-			SetPiece(1, 0, new Knight(PieceColor.White));
-			SetPiece(2, 0, new Bishop(PieceColor.White));
-			SetPiece(3, 0, new Queen(PieceColor.White));
-			SetPiece(4, 0, new King(PieceColor.White));
-			SetPiece(5, 0, new Bishop(PieceColor.White));
-			SetPiece(6, 0, new Knight(PieceColor.White));
-			SetPiece(7, 0, new Rook(PieceColor.White));
+			SetPieceDirectly(0, 0, new Rook(PieceColor.White));
+			SetPieceDirectly(1, 0, new Knight(PieceColor.White));
+			SetPieceDirectly(2, 0, new Bishop(PieceColor.White));
+			SetPieceDirectly(3, 0, new Queen(PieceColor.White));
+			whiteKing = new King(PieceColor.White);
+			SetPieceDirectly(4, 0, whiteKing);
+			whiteKingPosition = new Position(4, 0);
+			SetPieceDirectly(5, 0, new Bishop(PieceColor.White));
+			SetPieceDirectly(6, 0, new Knight(PieceColor.White));
+			SetPieceDirectly(7, 0, new Rook(PieceColor.White));
 
 			// Black pieces
-			SetPiece(0, 7, new Rook(PieceColor.Black));
-			SetPiece(1, 7, new Knight(PieceColor.Black));
-			SetPiece(2, 7, new Bishop(PieceColor.Black));
-			SetPiece(3, 7, new Queen(PieceColor.Black));
-			SetPiece(4, 7, new King(PieceColor.Black));
-			SetPiece(5, 7, new Bishop(PieceColor.Black));
-			SetPiece(6, 7, new Knight(PieceColor.Black));
-			SetPiece(7, 7, new Rook(PieceColor.Black));
+			SetPieceDirectly(0, 7, new Rook(PieceColor.Black));
+			SetPieceDirectly(1, 7, new Knight(PieceColor.Black));
+			SetPieceDirectly(2, 7, new Bishop(PieceColor.Black));
+			SetPieceDirectly(3, 7, new Queen(PieceColor.Black));
+			blackKing = new King(PieceColor.Black);
+			SetPieceDirectly(4, 7, blackKing);
+			blackKingPosition = new Position(4, 7);
+			SetPieceDirectly(5, 7, new Bishop(PieceColor.Black));
+			SetPieceDirectly(6, 7, new Knight(PieceColor.Black));
+			SetPieceDirectly(7, 7, new Rook(PieceColor.Black));
+		}
+
+		// Optimized method for initial board setup - faster than using SetPiece
+		private void SetPieceDirectly(int x, int y, Piece piece)
+		{
+			pieces[x, y] = piece;
+			if (piece != null)
+			{
+				piecePositions[piece] = new Position(x, y);
+			}
 		}
 
 		public void SetPiece(int x, int y, Piece piece)
 		{
+			// Clear evaluation cache since board state is changing
+			evaluationCache.Clear();
+
 			// Remove any existing piece at this position from the dictionary
-			if (pieces[x, y] != null && piecePositions.ContainsKey(pieces[x, y]))
+			if (pieces[x, y] != null)
 			{
-				piecePositions.Remove(pieces[x, y]);
+				Piece existingPiece = pieces[x, y];
+				if (piecePositions.ContainsKey(existingPiece))
+				{
+					// If the existing piece is a king, ensure we maintain king tracking
+					if (existingPiece is King)
+					{
+						if (existingPiece.Color == PieceColor.White)
+						{
+							whiteKing = null;
+							whiteKingPosition = null;
+						}
+						else
+						{
+							blackKing = null;
+							blackKingPosition = null;
+						}
+					}
+					piecePositions.Remove(existingPiece);
+				}
 			}
 
-			// Set the new piece
+			// Set the new piece on the board
 			pieces[x, y] = piece;
 
 			// Update the position dictionary
 			if (piece != null)
 			{
-				// Critical fix: Remove old position entry for this piece if it exists
+				// If this piece already exists elsewhere on the board, remove it first
 				if (piecePositions.ContainsKey(piece))
 				{
-					// Get the old position
 					Position oldPos = piecePositions[piece];
-					// Clear the old board position if needed
+					// Only clear the old position if it actually contains this piece
 					if (pieces[oldPos.X, oldPos.Y] == piece)
 					{
 						pieces[oldPos.X, oldPos.Y] = null;
@@ -115,8 +165,23 @@ namespace ChessGame.Models
 					piecePositions.Remove(piece);
 				}
 
-				// Add the new position
+				// Add new position entry
 				piecePositions[piece] = new Position(x, y);
+
+				// Update king position cache if needed
+				if (piece is King)
+				{
+					if (piece.Color == PieceColor.White)
+					{
+						whiteKing = (King)piece;
+						whiteKingPosition = new Position(x, y);
+					}
+					else
+					{
+						blackKing = (King)piece;
+						blackKingPosition = new Position(x, y);
+					}
+				}
 			}
 		}
 
@@ -266,6 +331,9 @@ namespace ChessGame.Models
 
 		public void MakeMove(Move move)
 		{
+			// Clear evaluation cache since board state is changing
+			evaluationCache.Clear();
+
 			// Store the piece at the starting position
 			Piece piece = pieces[move.FromX, move.FromY];
 			Piece capturedPiece = pieces[move.ToX, move.ToY];
@@ -321,9 +389,15 @@ namespace ChessGame.Models
 			if (piece is King)
 			{
 				if (piece.Color == PieceColor.White)
+				{
 					whiteKingMoved = true;
+					whiteKingPosition = new Position(move.ToX, move.ToY);
+				}
 				else
+				{
 					blackKingMoved = true;
+					blackKingPosition = new Position(move.ToX, move.ToY);
+				}
 			}
 			else if (piece is Rook)
 			{
@@ -375,79 +449,87 @@ namespace ChessGame.Models
 			}
 		}
 
-		public void UndoMove(Move move)
+		public void UndoMove()
 		{
 			if (moveRecords.Count == 0)
 				return;
 
+			// Clear evaluation cache since board state is changing
+			evaluationCache.Clear();
+
 			MoveRecord record = moveRecords.Pop();
+			Move move = record.Move;
 
-			// Restore the piece
-			pieces[record.Move.FromX, record.Move.FromY] = record.Piece;
-
-			// If there was a promotion, use the original piece
+			// Handle promoted pieces
 			if (record.PromotedPiece != null)
 			{
-				pieces[record.Move.ToX, record.Move.ToY] = record.CapturedPiece;
-
-				// Update piece positions
+				// Remove the promoted piece
 				if (piecePositions.ContainsKey(record.PromotedPiece))
 				{
 					piecePositions.Remove(record.PromotedPiece);
 				}
-
-				if (record.Piece != null)
-				{
-					piecePositions[record.Piece] = new Position(record.Move.FromX, record.Move.FromY);
-				}
+				pieces[move.ToX, move.ToY] = null;
 			}
-			else
+
+			// Restore the original piece
+			SetPiece(move.FromX, move.FromY, record.Piece);
+
+			// If it wasn't a promotion, clear the destination square
+			if (record.PromotedPiece == null)
 			{
-				pieces[record.Move.ToX, record.Move.ToY] = record.CapturedPiece;
+				pieces[move.ToX, move.ToY] = null;
 
-				// Update piece positions
-				if (record.Piece != null)
+				// If the piece position is still pointing to the new position, update it
+				if (piecePositions.ContainsKey(record.Piece) &&
+					piecePositions[record.Piece].X == move.ToX &&
+					piecePositions[record.Piece].Y == move.ToY)
 				{
-					piecePositions[record.Piece] = new Position(record.Move.FromX, record.Move.FromY);
-				}
-
-				if (record.CapturedPiece != null)
-				{
-					piecePositions[record.CapturedPiece] = new Position(record.Move.ToX, record.Move.ToY);
+					piecePositions[record.Piece] = new Position(move.FromX, move.FromY);
 				}
 			}
 
-			// Handle en passant capture
-			if (record.EnPassantCapture)
+			// Restore any captured piece
+			if (record.CapturedPiece != null)
 			{
-				int capturedPawnY = record.Piece.Color == PieceColor.White ?
-								   record.Move.ToY - 1 : record.Move.ToY + 1;
-
-				pieces[record.Move.ToX, capturedPawnY] = record.CapturedPiece;
-
-				if (record.CapturedPiece != null)
+				if (record.EnPassantCapture)
 				{
-					piecePositions[record.CapturedPiece] = new Position(record.Move.ToX, capturedPawnY);
+					int capturedPawnY = record.Piece.Color == PieceColor.White ?
+									   move.ToY - 1 : move.ToY + 1;
+					SetPiece(move.ToX, capturedPawnY, record.CapturedPiece);
+				}
+				else
+				{
+					SetPiece(move.ToX, move.ToY, record.CapturedPiece);
 				}
 			}
 
 			// Handle castling
-			if (record.Piece is King && Math.Abs(record.Move.ToX - record.Move.FromX) == 2)
+			if (record.Piece is King && Math.Abs(move.ToX - move.FromX) == 2)
 			{
 				// Kingside or queenside
-				bool kingsideCastling = record.Move.ToX > record.Move.FromX;
+				bool kingsideCastling = move.ToX > move.FromX;
 				int rookFromX = kingsideCastling ? 5 : 3;
 				int rookToX = kingsideCastling ? 7 : 0;
 				int y = record.Piece.Color == PieceColor.White ? 0 : 7;
 
 				// Move the rook back
 				Piece rook = pieces[rookFromX, y];
-				pieces[rookToX, y] = rook;
-				pieces[rookFromX, y] = null;
+				SetPiece(rookToX, y, rook);
+				SetPiece(rookFromX, y, null);
+			}
 
-				if (rook != null && piecePositions.ContainsKey(rook))
+			// Update king position cache
+			if (record.Piece is King)
+			{
+				if (record.Piece.Color == PieceColor.White)
 				{
-					piecePositions[rook] = new Position(rookToX, y);
+					whiteKingPosition = new Position(move.FromX, move.FromY);
+					whiteKing = (King)record.Piece;
+				}
+				else
+				{
+					blackKingPosition = new Position(move.FromX, move.FromY);
+					blackKing = (King)record.Piece;
 				}
 			}
 
@@ -461,7 +543,11 @@ namespace ChessGame.Models
 
 			// Restore en passant target
 			enPassantTarget = record.EnPassantTarget;
+
+			// Verify board consistency
+			ValidateBoardState();
 		}
+
 
 		public bool IsCheckmate(PieceColor color)
 		{
@@ -482,68 +568,23 @@ namespace ChessGame.Models
 
 		private bool HasValidMoves(PieceColor color)
 		{
-			// Create a copy of the piece positions to avoid modification during enumeration
-			var piecePositionsCopy = piecePositions.ToList();
+			// Optimization: Create a copy of the piece positions to avoid modification during enumeration
+			var pieceList = GetPiecesByColor(color);
 
 			// Check all pieces of the given color
-			foreach (var entry in piecePositionsCopy)
+			foreach (var entry in pieceList)
 			{
 				Piece piece = entry.Key;
 				Position pos = entry.Value;
 
-				if (piece.Color == color)
+				// For each piece, only check reasonable destination squares based on piece type
+				List<Position> potentialMoves = GetPotentialMoves(piece, pos);
+
+				foreach (var destination in potentialMoves)
 				{
-					// Check all possible destination squares
-					for (int toX = 0; toX < 8; toX++)
-					{
-						for (int toY = 0; toY < 8; toY++)
-						{
-							Move move = new Move(pos.X, pos.Y, toX, toY, new DummyPlayer(color));
+					Move move = new Move(pos.X, pos.Y, destination.X, destination.Y, new DummyPlayer(color));
 
-							if (IsValidMove(move))
-								return true;
-						}
-					}
-				}
-			}
-
-			return false;
-		}
-
-		public bool IsInCheck(PieceColor color)
-		{
-			// Find the king
-			King king = null;
-			Position kingPos = null;
-
-			foreach (var entry in piecePositions)
-			{
-				if (entry.Key is King && entry.Key.Color == color)
-				{
-					king = (King)entry.Key;
-					kingPos = entry.Value;
-					break;
-				}
-			}
-
-			if (king == null || kingPos == null)
-				return false;
-
-			// Check if any opponent piece can capture the king
-			PieceColor opponentColor = color == PieceColor.White ? PieceColor.Black : PieceColor.White;
-
-			foreach (var entry in piecePositions)
-			{
-				Piece piece = entry.Key;
-				Position pos = entry.Value;
-
-				if (piece.Color == opponentColor)
-				{
-					Move move = new Move(pos.X, pos.Y, kingPos.X, kingPos.Y, new DummyPlayer(opponentColor));
-
-					// Check if the piece can move to the king's position
-					// Ignore the check validation to avoid infinite recursion
-					if (piece.IsValidMove(move, this))
+					if (IsValidMove(move))
 						return true;
 				}
 			}
@@ -551,65 +592,448 @@ namespace ChessGame.Models
 			return false;
 		}
 
+		// Optimization: Only generate reasonable moves for each piece type
+		private List<Position> GetPotentialMoves(Piece piece, Position pos)
+		{
+			List<Position> moves = new List<Position>();
+
+			// For knights: Check the 8 L-shaped moves
+			if (piece is Knight)
+			{
+				int[] dx = { 1, 2, 2, 1, -1, -2, -2, -1 };
+				int[] dy = { 2, 1, -1, -2, -2, -1, 1, 2 };
+
+				for (int i = 0; i < 8; i++)
+				{
+					int nx = pos.X + dx[i];
+					int ny = pos.Y + dy[i];
+					if (nx >= 0 && nx < 8 && ny >= 0 && ny < 8)
+						moves.Add(new Position(nx, ny));
+				}
+				return moves;
+			}
+
+			// For kings: Check all 8 surrounding squares + castling
+			if (piece is King)
+			{
+				for (int dx = -1; dx <= 1; dx++)
+				{
+					for (int dy = -1; dy <= 1; dy++)
+					{
+						if (dx == 0 && dy == 0) continue;
+
+						int nx = pos.X + dx;
+						int ny = pos.Y + dy;
+						if (nx >= 0 && nx < 8 && ny >= 0 && ny < 8)
+							moves.Add(new Position(nx, ny));
+					}
+				}
+
+				// Add castling moves if king hasn't moved
+				if ((piece.Color == PieceColor.White && !whiteKingMoved) ||
+					(piece.Color == PieceColor.Black && !blackKingMoved))
+				{
+					moves.Add(new Position(pos.X + 2, pos.Y)); // Kingside
+					moves.Add(new Position(pos.X - 2, pos.Y)); // Queenside
+				}
+
+				return moves;
+			}
+
+			// For pawns: Forward moves + captures
+			if (piece is Pawn)
+			{
+				int direction = piece.Color == PieceColor.White ? 1 : -1;
+				int startRank = piece.Color == PieceColor.White ? 1 : 6;
+
+				// Forward one square
+				int ny = pos.Y + direction;
+				if (ny >= 0 && ny < 8 && pieces[pos.X, ny] == null)
+				{
+					moves.Add(new Position(pos.X, ny));
+
+					// Forward two squares from starting position
+					if (pos.Y == startRank)
+					{
+						ny = pos.Y + 2 * direction;
+						if (pieces[pos.X, ny] == null)
+							moves.Add(new Position(pos.X, ny));
+					}
+				}
+
+				// Captures (including en passant)
+				for (int dx = -1; dx <= 1; dx += 2)
+				{
+					int nx = pos.X + dx;
+					ny = pos.Y + direction;
+
+					if (nx >= 0 && nx < 8 && ny >= 0 && ny < 8)
+					{
+						// Regular capture
+						if (pieces[nx, ny] != null && pieces[nx, ny].Color != piece.Color)
+							moves.Add(new Position(nx, ny));
+
+						// En passant
+						if (pieces[nx, ny] == null && enPassantTarget != null &&
+							nx == enPassantTarget.X && ny == enPassantTarget.Y)
+							moves.Add(new Position(nx, ny));
+					}
+				}
+
+				return moves;
+			}
+
+			// For sliding pieces (Queen, Rook, Bishop): Check all possible directions
+			int[][] directions;
+
+			if (piece is Queen)
+				directions = new int[][] { new int[] {1, 0}, new int[] {0, 1}, new int[] {-1, 0}, new int[] {0, -1},
+										 new int[] {1, 1}, new int[] {1, -1}, new int[] {-1, 1}, new int[] {-1, -1} };
+			else if (piece is Rook)
+				directions = new int[][] { new int[] { 1, 0 }, new int[] { 0, 1 }, new int[] { -1, 0 }, new int[] { 0, -1 } };
+			else if (piece is Bishop)
+				directions = new int[][] { new int[] { 1, 1 }, new int[] { 1, -1 }, new int[] { -1, 1 }, new int[] { -1, -1 } };
+			else
+				directions = new int[][] { }; // Shouldn't happen
+
+			foreach (var dir in directions)
+			{
+				int dx = dir[0];
+				int dy = dir[1];
+
+				for (int dist = 1; dist < 8; dist++)
+				{
+					int nx = pos.X + dx * dist;
+					int ny = pos.Y + dy * dist;
+
+					if (nx < 0 || nx >= 8 || ny < 0 || ny >= 8)
+						break;
+
+					moves.Add(new Position(nx, ny));
+
+					// Stop if we hit a piece
+					if (pieces[nx, ny] != null)
+						break;
+				}
+			}
+
+			return moves;
+		}
+
+		public bool IsInCheck(PieceColor color)
+		{
+			// Use the cached king positions for efficiency
+			Position kingPos = color == PieceColor.White ? whiteKingPosition : blackKingPosition;
+
+			if (kingPos == null)
+			{
+				// Fallback to search if cache is not available
+				foreach (var entry in piecePositions)
+				{
+					if (entry.Key is King && entry.Key.Color == color)
+					{
+						kingPos = entry.Value;
+
+						// Update the cache
+						if (color == PieceColor.White)
+						{
+							whiteKing = (King)entry.Key;
+							whiteKingPosition = kingPos;
+						}
+						else
+						{
+							blackKing = (King)entry.Key;
+							blackKingPosition = kingPos;
+						}
+						break;
+					}
+				}
+			}
+
+			if (kingPos == null)
+				return false;
+
+			// Check if any opponent piece can capture the king
+			PieceColor opponentColor = color == PieceColor.White ? PieceColor.Black : PieceColor.White;
+			var opponentPieces = GetPiecesByColor(opponentColor);
+
+			foreach (var entry in opponentPieces)
+			{
+				Piece piece = entry.Key;
+				Position pos = entry.Value;
+
+				// Optimization: Quick check based on piece type to see if it's even possible
+				if (!CanPotentiallyAttack(piece, pos, kingPos))
+					continue;
+
+				Move move = new Move(pos.X, pos.Y, kingPos.X, kingPos.Y, new DummyPlayer(opponentColor));
+
+				// Check if the piece can move to the king's position
+				// Ignore the check validation to avoid infinite recursion
+				if (piece.IsValidMove(move, this))
+					return true;
+			}
+
+			return false;
+		}
+
+		// Quick check to see if a piece could potentially attack a target square before doing full validation
+		private bool CanPotentiallyAttack(Piece piece, Position from, Position to)
+		{
+			int dx = to.X - from.X;
+			int dy = to.Y - from.Y;
+			int absDx = Math.Abs(dx);
+			int absDy = Math.Abs(dy);
+
+			// Knights have a specific attack pattern
+			if (piece is Knight)
+				return (absDx == 1 && absDy == 2) || (absDx == 2 && absDy == 1);
+
+			// Kings can only attack adjacent squares
+			if (piece is King)
+				return absDx <= 1 && absDy <= 1;
+
+			// Pawns have specific attack patterns
+			if (piece is Pawn)
+			{
+				int direction = piece.Color == PieceColor.White ? 1 : -1;
+
+				// Pawns attack diagonally forward
+				if (absDx == 1 && dy == direction)
+					return true;
+
+				// Check for en passant potential
+				if (absDx == 1 && dy == direction && enPassantTarget != null &&
+					to.X == enPassantTarget.X && to.Y == enPassantTarget.Y)
+					return true;
+
+				return false;
+			}
+
+			// For sliding pieces, make sure they're moving in a valid direction
+			bool validDirection = false;
+
+			if (piece is Rook)
+				validDirection = dx == 0 || dy == 0;
+			else if (piece is Bishop)
+				validDirection = absDx == absDy;
+			else if (piece is Queen)
+				validDirection = dx == 0 || dy == 0 || absDx == absDy;
+
+			if (!validDirection)
+				return false;
+
+			// For sliding pieces, check if there are any pieces in between
+			int stepX = dx == 0 ? 0 : dx > 0 ? 1 : -1;
+			int stepY = dy == 0 ? 0 : dy > 0 ? 1 : -1;
+
+			int currentX = from.X + stepX;
+			int currentY = from.Y + stepY;
+
+			while (currentX != to.X || currentY != to.Y)
+			{
+				if (pieces[currentX, currentY] != null)
+					return false;  // Piece in the way
+
+				currentX += stepX;
+				currentY += stepY;
+			}
+
+			return true;
+		}
+
+		// Add a new method to validate board state consistency
+		private void ValidateBoardState()
+		{
+			// Check that piece positions dictionary is consistent with the board array
+			bool inconsistencyFound = false;
+
+			// Check each position in pieces array matches dictionary
+			for (int x = 0; x < 8; x++)
+			{
+				for (int y = 0; y < 8; y++)
+				{
+					Piece p = pieces[x, y];
+					if (p != null)
+					{
+						if (!piecePositions.ContainsKey(p))
+						{
+							// Piece on board but not in dictionary
+							inconsistencyFound = true;
+							piecePositions[p] = new Position(x, y);
+						}
+						else if (piecePositions[p].X != x || piecePositions[p].Y != y)
+						{
+							// Position mismatch between board and dictionary
+							inconsistencyFound = true;
+							piecePositions[p] = new Position(x, y);
+						}
+					}
+				}
+			}
+
+			// Check each entry in the dictionary matches the board
+			foreach (var entry in piecePositions.ToList())
+			{
+				Piece p = entry.Key;
+				Position pos = entry.Value;
+
+				if (pos.X < 0 || pos.X > 7 || pos.Y < 0 || pos.Y > 7 ||
+					pieces[pos.X, pos.Y] != p)
+				{
+					// Dictionary entry doesn't match board
+					inconsistencyFound = true;
+					piecePositions.Remove(p);
+				}
+			}
+
+			// Verify king position caches
+			if (whiteKing != null)
+			{
+				if (!piecePositions.ContainsKey(whiteKing) ||
+					(whiteKingPosition.X != piecePositions[whiteKing].X ||
+					 whiteKingPosition.Y != piecePositions[whiteKing].Y))
+				{
+					// King position cache is inconsistent
+					inconsistencyFound = true;
+					if (piecePositions.ContainsKey(whiteKing))
+					{
+						whiteKingPosition = piecePositions[whiteKing];
+					}
+					else
+					{
+						// White king is missing, try to find it
+						whiteKing = null;
+						whiteKingPosition = null;
+
+						for (int x = 0; x < 8; x++)
+						{
+							for (int y = 0; y < 8; y++)
+							{
+								if (pieces[x, y] is King && pieces[x, y].Color == PieceColor.White)
+								{
+									whiteKing = (King)pieces[x, y];
+									whiteKingPosition = new Position(x, y);
+									piecePositions[whiteKing] = whiteKingPosition;
+									break;
+								}
+							}
+							if (whiteKing != null) break;
+						}
+					}
+				}
+			}
+
+			if (blackKing != null)
+			{
+				if (!piecePositions.ContainsKey(blackKing) ||
+					(blackKingPosition.X != piecePositions[blackKing].X ||
+					 blackKingPosition.Y != piecePositions[blackKing].Y))
+				{
+					// King position cache is inconsistent
+					inconsistencyFound = true;
+					if (piecePositions.ContainsKey(blackKing))
+					{
+						blackKingPosition = piecePositions[blackKing];
+					}
+					else
+					{
+						// Black king is missing, try to find it
+						blackKing = null;
+						blackKingPosition = null;
+
+						for (int x = 0; x < 8; x++)
+						{
+							for (int y = 0; y < 8; y++)
+							{
+								if (pieces[x, y] is King && pieces[x, y].Color == PieceColor.Black)
+								{
+									blackKing = (King)pieces[x, y];
+									blackKingPosition = new Position(x, y);
+									piecePositions[blackKing] = blackKingPosition;
+									break;
+								}
+							}
+							if (blackKing != null) break;
+						}
+					}
+				}
+			}
+
+			// If inconsistencies were found and fixed, clear the evaluation cache
+			if (inconsistencyFound)
+			{
+				evaluationCache.Clear();
+			}
+		}
+
 		private bool WouldBeInCheck(Move move, PieceColor color)
 		{
-			// Make a temporary move
+			// Save board state
 			Piece piece = pieces[move.FromX, move.FromY];
 			Piece capturedPiece = pieces[move.ToX, move.ToY];
+			bool isKingMove = piece is King;
+			Position originalKingPos = null;
 
-			// Save original positions
-			Position originalPiecePos = null;
-			Position originalCapturedPos = null;
+			// Check for en passant
+			bool isEnPassantCapture = false;
+			Piece enPassantCapturedPiece = null;
+			Position enPassantCapturedPos = null;
 
-			if (piecePositions.ContainsKey(piece))
+			if (piece is Pawn && move.ToX != move.FromX && pieces[move.ToX, move.ToY] == null &&
+				enPassantTarget != null && enPassantTarget.X == move.ToX && enPassantTarget.Y == move.ToY)
 			{
-				originalPiecePos = piecePositions[piece];
+				isEnPassantCapture = true;
+				int capturedPawnY = piece.Color == PieceColor.White ? move.ToY - 1 : move.ToY + 1;
+				enPassantCapturedPiece = pieces[move.ToX, capturedPawnY];
+				enPassantCapturedPos = new Position(move.ToX, capturedPawnY);
 			}
 
-			if (capturedPiece != null && piecePositions.ContainsKey(capturedPiece))
+			// If it's a king move, save the original position
+			if (isKingMove)
 			{
-				originalCapturedPos = piecePositions[capturedPiece];
+				originalKingPos = color == PieceColor.White ? whiteKingPosition : blackKingPosition;
 			}
 
-			// Make the move
+			// Make the move temporarily
 			pieces[move.ToX, move.ToY] = piece;
 			pieces[move.FromX, move.FromY] = null;
 
-			// Update piece position temporarily
-			if (piecePositions.ContainsKey(piece))
+			// Handle en passant capture
+			if (isEnPassantCapture && enPassantCapturedPiece != null)
 			{
-				piecePositions[piece] = new Position(move.ToX, move.ToY);
+				pieces[enPassantCapturedPos.X, enPassantCapturedPos.Y] = null;
 			}
 
-			// Remove captured piece temporarily
-			if (capturedPiece != null && piecePositions.ContainsKey(capturedPiece))
+			// Update king position temporarily if it's a king move
+			if (isKingMove)
 			{
-				piecePositions.Remove(capturedPiece);
+				if (color == PieceColor.White)
+					whiteKingPosition = new Position(move.ToX, move.ToY);
+				else
+					blackKingPosition = new Position(move.ToX, move.ToY);
 			}
 
-			// Check if the king is in check
+			// Check if the king is in check after this move
 			bool inCheck = IsInCheck(color);
 
-			// Undo the temporary move
+			// Restore board state
 			pieces[move.FromX, move.FromY] = piece;
 			pieces[move.ToX, move.ToY] = capturedPiece;
 
-			// Restore original positions
-			if (originalPiecePos != null && piecePositions.ContainsKey(piece))
+			// Restore en passant piece if needed
+			if (isEnPassantCapture && enPassantCapturedPiece != null)
 			{
-				piecePositions[piece] = originalPiecePos;
+				pieces[enPassantCapturedPos.X, enPassantCapturedPos.Y] = enPassantCapturedPiece;
 			}
 
-			if (capturedPiece != null)
+			// Restore king position if it was a king move
+			if (isKingMove)
 			{
-				if (originalCapturedPos != null)
-				{
-					piecePositions[capturedPiece] = originalCapturedPos;
-				}
+				if (color == PieceColor.White)
+					whiteKingPosition = originalKingPos;
 				else
-				{
-					piecePositions.Add(capturedPiece, new Position(move.ToX, move.ToY));
-				}
+					blackKingPosition = originalKingPos;
 			}
 
 			return inCheck;
@@ -638,7 +1062,22 @@ namespace ChessGame.Models
 		// Method for board evaluation (used by AI)
 		public int Evaluate(PieceColor maximizingColor)
 		{
+			// Check if we have this position's evaluation in cache
+			string boardKey = GetBoardStateKey(maximizingColor);
+			if (evaluationCache.ContainsKey(boardKey))
+			{
+				return evaluationCache[boardKey];
+			}
+
 			int score = 0;
+
+			// Check for checkmate or stalemate first (highest priority)
+			if (IsCheckmate(maximizingColor))
+				return -10000; // Huge penalty for being checkmated
+			else if (IsCheckmate(maximizingColor == PieceColor.White ? PieceColor.Black : PieceColor.White))
+				return 10000; // Huge bonus for checkmating opponent
+			else if (IsStalemate())
+				return 0; // Stalemate is a draw
 
 			// Material value
 			foreach (var entry in piecePositions)
@@ -665,15 +1104,178 @@ namespace ChessGame.Models
 					score -= positionValue;
 			}
 
-			// Check and checkmate
-			if (IsCheckmate(maximizingColor))
-				score -= 10000; // Huge penalty for being checkmated
-			else if (IsCheckmate(maximizingColor == PieceColor.White ? PieceColor.Black : PieceColor.White))
-				score += 10000; // Huge bonus for checkmating opponent
-			else if (IsInCheck(maximizingColor))
+			// Check and mobility bonuses
+			if (IsInCheck(maximizingColor))
 				score -= 50; // Penalty for being in check
 			else if (IsInCheck(maximizingColor == PieceColor.White ? PieceColor.Black : PieceColor.White))
 				score += 50; // Bonus for putting opponent in check
+
+			// Control of center
+			score += CalculateCenterControl(maximizingColor);
+
+			// Development in early game (first 10 moves)
+			if (moveRecords.Count < 20)
+			{
+				score += CalculateDevelopment(maximizingColor);
+			}
+
+			// Cache this evaluation result
+			if (evaluationCache.Count >= EVALUATION_CACHE_SIZE)
+			{
+				// If cache is full, clear a portion of it
+				var keysToRemove = evaluationCache.Keys.Take(EVALUATION_CACHE_SIZE / 4).ToList();
+				foreach (var key in keysToRemove)
+				{
+					evaluationCache.Remove(key);
+				}
+			}
+
+			evaluationCache[boardKey] = score;
+			return score;
+		}
+
+		// Generate a unique key for the current board state for caching
+		private string GetBoardStateKey(PieceColor perspective)
+		{
+			StringBuilder sb = new StringBuilder();
+
+			// Add the current perspective
+			sb.Append(perspective == PieceColor.White ? 'W' : 'B');
+
+			// Add castling rights
+			sb.Append(whiteKingMoved ? '0' : '1');
+			sb.Append(blackKingMoved ? '0' : '1');
+			sb.Append(whiteRookAMoved ? '0' : '1');
+			sb.Append(whiteRookHMoved ? '0' : '1');
+			sb.Append(blackRookAMoved ? '0' : '1');
+			sb.Append(blackRookHMoved ? '0' : '1');
+
+			// Add en passant target
+			if (enPassantTarget != null)
+				sb.Append($"E{enPassantTarget.X}{enPassantTarget.Y}");
+			else
+				sb.Append("E--");
+
+			// Add move count to differentiate positions reached by different paths
+			sb.Append($"M{moveRecords.Count}");
+
+			// Add board state (compact representation)
+			for (int y = 0; y < 8; y++)
+			{
+				for (int x = 0; x < 8; x++)
+				{
+					Piece p = pieces[x, y];
+					if (p == null)
+						sb.Append('-');
+					else
+					{
+						// Include piece type and color
+						sb.Append(p.Symbol);
+					}
+				}
+			}
+
+			// Include king positions explicitly for verification
+			if (whiteKingPosition != null)
+				sb.Append($"WK{whiteKingPosition.X}{whiteKingPosition.Y}");
+			if (blackKingPosition != null)
+				sb.Append($"BK{blackKingPosition.X}{blackKingPosition.Y}");
+
+			return sb.ToString();
+		}
+
+		// Calculate score based on control of central squares
+		private int CalculateCenterControl(PieceColor color)
+		{
+			int score = 0;
+			PieceColor opponent = color == PieceColor.White ? PieceColor.Black : PieceColor.White;
+
+			// Define center squares
+			Position[] centerSquares = new Position[]
+			{
+		new Position(3, 3), new Position(4, 3),
+		new Position(3, 4), new Position(4, 4)
+			};
+
+			// Count how many pieces attack center squares
+			foreach (var square in centerSquares)
+			{
+				if (IsSquareAttackedBy(square.X, square.Y, color))
+					score += 10;
+				if (IsSquareAttackedBy(square.X, square.Y, opponent))
+					score -= 10;
+			}
+
+			return score;
+		}
+
+		// Check if a square is attacked by a piece of the given color
+		private bool IsSquareAttackedBy(int x, int y, PieceColor attackerColor)
+		{
+			var attackers = GetPiecesByColor(attackerColor);
+
+			foreach (var entry in attackers)
+			{
+				Piece piece = entry.Key;
+				Position pos = entry.Value;
+
+				Move move = new Move(pos.X, pos.Y, x, y, new DummyPlayer(attackerColor));
+
+				if (piece.IsValidMove(move, this))
+					return true;
+			}
+
+			return false;
+		}
+
+		// Calculate development score (knights and bishops out, castled, pawns advanced)
+		private int CalculateDevelopment(PieceColor color)
+		{
+			int score = 0;
+			int homeRank = color == PieceColor.White ? 0 : 7;
+
+			var pieces = GetPiecesByColor(color);
+
+			// Knights and bishops developed
+			foreach (var entry in pieces)
+			{
+				Piece piece = entry.Key;
+				Position pos = entry.Value;
+
+				if (piece is Knight || piece is Bishop)
+				{
+					if (pos.Y != homeRank)
+						score += 10; // Piece is off the back rank
+				}
+			}
+
+			// Castling completed or available
+			if (color == PieceColor.White)
+			{
+				if (whiteKingMoved && (whiteKingPosition.X == 2 || whiteKingPosition.X == 6))
+					score += 40; // Already castled
+				else if (!whiteKingMoved && (!whiteRookAMoved || !whiteRookHMoved))
+					score += 20; // Can still castle
+			}
+			else
+			{
+				if (blackKingMoved && (blackKingPosition.X == 2 || blackKingPosition.X == 6))
+					score += 40; // Already castled
+				else if (!blackKingMoved && (!blackRookAMoved || !blackRookHMoved))
+					score += 20; // Can still castle
+			}
+	
+			// Central pawns advanced
+			for (int x = 3; x <= 4; x++)
+			{
+				for (int y = 2; y <= 5; y++)
+				{
+					Piece p = this.pieces[x, y]; // Use `this.` to avoid confusion
+					if (p is Pawn && p.Color == color)
+						score += 10;
+				}
+			}
+
 
 			return score;
 		}
@@ -697,75 +1299,75 @@ namespace ChessGame.Models
 
 			// Pawns prefer to advance and control the center
 			int[,] pawnTable = {
-			{0,  0,  0,  0,  0,  0,  0,  0},
-			{50, 50, 50, 50, 50, 50, 50, 50},
-			{10, 10, 20, 30, 30, 20, 10, 10},
-			{5,  5, 10, 25, 25, 10,  5,  5},
-			{0,  0,  0, 20, 20,  0,  0,  0},
-			{5, -5,-10,  0,  0,-10, -5,  5},
-			{5, 10, 10,-20,-20, 10, 10,  5},
-			{0,  0,  0,  0,  0,  0,  0,  0}
-		};
+		{0,  0,  0,  0,  0,  0,  0,  0},
+		{50, 50, 50, 50, 50, 50, 50, 50},
+		{10, 10, 20, 30, 30, 20, 10, 10},
+		{5,  5, 10, 25, 25, 10,  5,  5},
+		{0,  0,  0, 20, 20,  0,  0,  0},
+		{5, -5,-10,  0,  0,-10, -5,  5},
+		{5, 10, 10,-20,-20, 10, 10,  5},
+		{0,  0,  0,  0,  0,  0,  0,  0}
+	};
 
 			// Knights prefer the center and avoid edges
 			int[,] knightTable = {
-			{-50,-40,-30,-30,-30,-30,-40,-50},
-			{-40,-20,  0,  0,  0,  0,-20,-40},
-			{-30,  0, 10, 15, 15, 10,  0,-30},
-			{-30,  5, 15, 20, 20, 15,  5,-30},
-			{-30,  0, 15, 20, 20, 15,  0,-30},
-			{-30,  5, 10, 15, 15, 10,  5,-30},
-			{-40,-20,  0,  5,  5,  0,-20,-40},
-			{-50,-40,-30,-30,-30,-30,-40,-50}
-		};
+		{-50,-40,-30,-30,-30,-30,-40,-50},
+		{-40,-20,  0,  0,  0,  0,-20,-40},
+		{-30,  0, 10, 15, 15, 10,  0,-30},
+		{-30,  5, 15, 20, 20, 15,  5,-30},
+		{-30,  0, 15, 20, 20, 15,  0,-30},
+		{-30,  5, 10, 15, 15, 10,  5,-30},
+		{-40,-20,  0,  5,  5,  0,-20,-40},
+		{-50,-40,-30,-30,-30,-30,-40,-50}
+	};
 
 			// Bishops prefer diagonals
 			int[,] bishopTable = {
-			{-20,-10,-10,-10,-10,-10,-10,-20},
-			{-10,  0,  0,  0,  0,  0,  0,-10},
-			{-10,  0, 10, 10, 10, 10,  0,-10},
-			{-10,  5,  5, 10, 10,  5,  5,-10},
-			{-10,  0,  5, 10, 10,  5,  0,-10},
-			{-10,  5,  5,  5,  5,  5,  5,-10},
-			{-10,  0,  5,  0,  0,  5,  0,-10},
-			{-20,-10,-10,-10,-10,-10,-10,-20}
-		};
+		{-20,-10,-10,-10,-10,-10,-10,-20},
+		{-10,  0,  0,  0,  0,  0,  0,-10},
+		{-10,  0, 10, 10, 10, 10,  0,-10},
+		{-10,  5,  5, 10, 10,  5,  5,-10},
+		{-10,  0,  5, 10, 10,  5,  0,-10},
+		{-10,  5,  5,  5,  5,  5,  5,-10},
+		{-10,  0,  5,  0,  0,  5,  0,-10},
+		{-20,-10,-10,-10,-10,-10,-10,-20}
+	};
 
 			// Rooks prefer open files and 7th rank
 			int[,] rookTable = {
-			{0,  0,  0,  0,  0,  0,  0,  0},
-			{5, 10, 10, 10, 10, 10, 10,  5},
-			{-5,  0,  0,  0,  0,  0,  0, -5},
-			{-5,  0,  0,  0,  0,  0,  0, -5},
-			{-5,  0,  0,  0,  0,  0,  0, -5},
-			{-5,  0,  0,  0,  0,  0,  0, -5},
-			{-5,  0,  0,  0,  0,  0,  0, -5},
-			{0,  0,  0,  5,  5,  0,  0,  0}
-		};
+		{0,  0,  0,  0,  0,  0,  0,  0},
+		{5, 10, 10, 10, 10, 10, 10,  5},
+		{-5,  0,  0,  0,  0,  0,  0, -5},
+		{-5,  0,  0,  0,  0,  0,  0, -5},
+		{-5,  0,  0,  0,  0,  0,  0, -5},
+		{-5,  0,  0,  0,  0,  0,  0, -5},
+		{-5,  0,  0,  0,  0,  0,  0, -5},
+		{0,  0,  0,  5,  5,  0,  0,  0}
+	};
 
 			// Queens combine rook and bishop mobility
 			int[,] queenTable = {
-			{-20,-10,-10, -5, -5,-10,-10,-20},
-			{-10,  0,  0,  0,  0,  0,  0,-10},
-			{-10,  0,  5,  5,  5,  5,  0,-10},
-			{-5,  0,  5,  5,  5,  5,  0, -5},
-			{0,  0,  5,  5,  5,  5,  0, -5},
-			{-10,  5,  5,  5,  5,  5,  0,-10},
-			{-10,  0,  5,  0,  0,  0,  0,-10},
-			{-20,-10,-10, -5, -5,-10,-10,-20}
-		};
+		{-20,-10,-10, -5, -5,-10,-10,-20},
+		{-10,  0,  0,  0,  0,  0,  0,-10},
+		{-10,  0,  5,  5,  5,  5,  0,-10},
+		{-5,  0,  5,  5,  5,  5,  0, -5},
+		{0,  0,  5,  5,  5,  5,  0, -5},
+		{-10,  5,  5,  5,  5,  5,  0,-10},
+		{-10,  0,  5,  0,  0,  0,  0,-10},
+		{-20,-10,-10, -5, -5,-10,-10,-20}
+	};
 
 			// Kings prefer safety in early/mid game
 			int[,] kingMidGameTable = {
-			{-30,-40,-40,-50,-50,-40,-40,-30},
-			{-30,-40,-40,-50,-50,-40,-40,-30},
-			{-30,-40,-40,-50,-50,-40,-40,-30},
-			{-30,-40,-40,-50,-50,-40,-40,-30},
-			{-20,-30,-30,-40,-40,-30,-30,-20},
-			{-10,-20,-20,-20,-20,-20,-20,-10},
-			{20, 20,  0,  0,  0,  0, 20, 20},
-			{20, 30, 10,  0,  0, 10, 30, 20}
-		};
+		{-30,-40,-40,-50,-50,-40,-40,-30},
+		{-30,-40,-40,-50,-50,-40,-40,-30},
+		{-30,-40,-40,-50,-50,-40,-40,-30},
+		{-30,-40,-40,-50,-50,-40,-40,-30},
+		{-20,-30,-30,-40,-40,-30,-30,-20},
+		{-10,-20,-20,-20,-20,-20,-20,-10},
+		{20, 20,  0,  0,  0,  0, 20, 20},
+		{20, 30, 10,  0,  0, 10, 30, 20}
+	};
 
 			// Flip the tables for black pieces
 			int x = pos.X;
@@ -791,4 +1393,3 @@ namespace ChessGame.Models
 		}
 	}
 }
-

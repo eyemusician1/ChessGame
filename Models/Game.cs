@@ -625,8 +625,8 @@ namespace ChessGame.Models
 			if (moveHistory.Count >= 2) // Undo both player and AI moves
 			{
 				// Undo last two moves
-				board.UndoMove(moveHistory[moveHistory.Count - 1]);
-				board.UndoMove(moveHistory[moveHistory.Count - 2]);
+				board.UndoMove();
+				board.UndoMove();
 
 				// Remove from history
 				moveHistory.RemoveAt(moveHistory.Count - 1);
