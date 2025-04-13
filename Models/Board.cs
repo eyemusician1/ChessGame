@@ -1252,19 +1252,20 @@ namespace ChessGame.Models
 			// Castling completed or available
 			if (color == PieceColor.White)
 			{
-				if (whiteKingMoved && (whiteKingPosition.X == 2 || whiteKingPosition.X == 6))
+				if (whiteKingMoved && whiteKingPosition != null &&
+					(whiteKingPosition.X == 2 || whiteKingPosition.X == 6))
 					score += 40; // Already castled
 				else if (!whiteKingMoved && (!whiteRookAMoved || !whiteRookHMoved))
 					score += 20; // Can still castle
 			}
 			else
 			{
-				if (blackKingMoved && (blackKingPosition.X == 2 || blackKingPosition.X == 6))
+				if (blackKingMoved && blackKingPosition != null &&
+					(blackKingPosition.X == 2 || blackKingPosition.X == 6))
 					score += 40; // Already castled
 				else if (!blackKingMoved && (!blackRookAMoved || !blackRookHMoved))
 					score += 20; // Can still castle
 			}
-	
 			// Central pawns advanced
 			for (int x = 3; x <= 4; x++)
 			{
