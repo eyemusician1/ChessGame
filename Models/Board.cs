@@ -1016,8 +1016,22 @@ namespace ChessGame.Models
 				// For normal moves, we can just update the piece positions
 				tempBoard.SetPiece(move.ToX, move.ToY, piece);
 				tempBoard.SetPiece(move.FromX, move.FromY, null);
-			}
 
+				// Update king position if the king is moving
+				if (piece is King && piece.Color == color)
+				{
+					if (color == PieceColor.White)
+					{
+						var field = typeof(Board).GetField("whiteKingPosition", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+						field.SetValue(tempBoard, new Position(move.ToX, move.ToY));
+					}
+					else
+					{
+						var field = typeof(Board).GetField("blackKingPosition", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+						field.SetValue(tempBoard, new Position(move.ToX, move.ToY));
+					}
+				}
+			}
 			// Check if the king is in check on the temporary board
 			return tempBoard.IsInCheck(color);
 		}
