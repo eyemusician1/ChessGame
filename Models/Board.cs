@@ -317,14 +317,27 @@ namespace ChessGame.Models
 			// Check if the king passes through or ends up in check
 			int direction = kingsideCastling ? 1 : -1;
 
-			// Check the square the king passes through
-			Move intermediateMove = new Move(
-				move.FromX, move.FromY,
-				move.FromX + direction, move.FromY,
-				move.Player);
+			// Check each square the king passes through
+			for (int offset = 0; offset <= 2; offset++)  // Check current, first step, and destination
+			{
+				int checkX = move.FromX + (direction * offset);
+				if (checkX != move.FromX)  // Don't check the starting square for attacks
+				{
+					PieceColor opponentColor = king.Color == PieceColor.White ? PieceColor.Black : PieceColor.White;
+					var opponentPieces = GetPiecesByColor(opponentColor);
 
-			if (WouldBeInCheck(intermediateMove, king.Color))
-				return false;
+					foreach (var entry in opponentPieces)
+					{
+						Piece piece = entry.Key;
+						Position pos = entry.Value;
+						Move checkMove = new Move(pos.X, pos.Y, checkX, y, new DummyPlayer(opponentColor));
+
+						// Skip the king check validation to avoid recursion
+						if (piece.IsValidMove(checkMove, this))
+							return false;
+					}
+				}
+			}
 
 			return true;
 		}
@@ -376,12 +389,12 @@ namespace ChessGame.Models
 					int capturedPawnY = piece.Color == PieceColor.White ? move.ToY - 1 : move.ToY + 1;
 					capturedPiece = pieces[move.ToX, capturedPawnY];
 
-					// Use SetPiece to properly update the piece tracking
-					SetPiece(move.ToX, capturedPawnY, null);
-
 					// Update the move record
 					record.CapturedPiece = capturedPiece;
 					record.EnPassantCapture = true;
+
+					// Use SetPiece to properly update the piece tracking
+					SetPiece(move.ToX, capturedPawnY, null);
 				}
 			}
 
@@ -403,16 +416,16 @@ namespace ChessGame.Models
 			{
 				if (piece.Color == PieceColor.White)
 				{
-					if (move.FromX == 0)
+					if (move.FromX == 0 && move.FromY == 0)
 						whiteRookAMoved = true;
-					else if (move.FromX == 7)
+					else if (move.FromX == 7 && move.FromY == 0)
 						whiteRookHMoved = true;
 				}
 				else
 				{
-					if (move.FromX == 0)
+					if (move.FromX == 0 && move.FromY == 7)
 						blackRookAMoved = true;
-					else if (move.FromX == 7)
+					else if (move.FromX == 7 && move.FromY == 7)
 						blackRookHMoved = true;
 				}
 			}
@@ -440,13 +453,16 @@ namespace ChessGame.Models
 					// Promote to queen by default
 					Queen queen = new Queen(piece.Color);
 
-					// Use SetPiece to properly update the piece tracking
-					SetPiece(move.ToX, move.ToY, queen);
-
 					// Update the move record
 					record.PromotedPiece = queen;
+
+					// Use SetPiece to properly update the piece tracking
+					SetPiece(move.ToX, move.ToY, queen);
 				}
 			}
+
+			// Validate the board state after the move
+			ValidateBoardState();
 		}
 
 		public void UndoMove()
@@ -969,74 +985,99 @@ namespace ChessGame.Models
 
 		private bool WouldBeInCheck(Move move, PieceColor color)
 		{
-			// Save board state
-			Piece piece = pieces[move.FromX, move.FromY];
-			Piece capturedPiece = pieces[move.ToX, move.ToY];
-			bool isKingMove = piece is King;
-			Position originalKingPos = null;
+			// Create a copy of the board and make the move on it
+			Board tempBoard = new Board();
+			CopyBoardState(tempBoard);
 
-			// Check for en passant
-			bool isEnPassantCapture = false;
-			Piece enPassantCapturedPiece = null;
-			Position enPassantCapturedPos = null;
+			// Make the move on the temporary board
+			Piece piece = tempBoard.GetPiece(move.FromX, move.FromY);
 
-			if (piece is Pawn && move.ToX != move.FromX && pieces[move.ToX, move.ToY] == null &&
-				enPassantTarget != null && enPassantTarget.X == move.ToX && enPassantTarget.Y == move.ToY)
+			// Handle en passant special case
+			bool isEnPassant = false;
+			if (piece is Pawn && move.ToX != move.FromX && tempBoard.GetPiece(move.ToX, move.ToY) == null)
 			{
-				isEnPassantCapture = true;
-				int capturedPawnY = piece.Color == PieceColor.White ? move.ToY - 1 : move.ToY + 1;
-				enPassantCapturedPiece = pieces[move.ToX, capturedPawnY];
-				enPassantCapturedPos = new Position(move.ToX, capturedPawnY);
+				Position enPassantTarget = tempBoard.GetEnPassantTarget();
+				if (enPassantTarget != null && enPassantTarget.X == move.ToX && enPassantTarget.Y == move.ToY)
+				{
+					isEnPassant = true;
+				}
 			}
 
-			// If it's a king move, save the original position
-			if (isKingMove)
+			// Handle castling special case
+			bool isCastling = piece is King && Math.Abs(move.ToX - move.FromX) == 2;
+
+			if (isEnPassant || isCastling)
 			{
-				originalKingPos = color == PieceColor.White ? whiteKingPosition : blackKingPosition;
+				// For special moves, we need to actually make the move on the temp board
+				tempBoard.MakeMove(move);
+			}
+			else
+			{
+				// For normal moves, we can just update the piece positions
+				tempBoard.SetPiece(move.ToX, move.ToY, piece);
+				tempBoard.SetPiece(move.FromX, move.FromY, null);
 			}
 
-			// Make the move temporarily
-			pieces[move.ToX, move.ToY] = piece;
-			pieces[move.FromX, move.FromY] = null;
+			// Check if the king is in check on the temporary board
+			return tempBoard.IsInCheck(color);
+		}
 
-			// Handle en passant capture
-			if (isEnPassantCapture && enPassantCapturedPiece != null)
+		// Helper method to copy the board state to a temporary board
+		private void CopyBoardState(Board targetBoard)
+		{
+			// Copy pieces
+			for (int x = 0; x < 8; x++)
 			{
-				pieces[enPassantCapturedPos.X, enPassantCapturedPos.Y] = null;
+				for (int y = 0; y < 8; y++)
+				{
+					if (pieces[x, y] != null)
+					{
+						Piece originalPiece = pieces[x, y];
+						Piece newPiece;
+
+						// Create a new piece of the same type and color
+						if (originalPiece is Pawn)
+							newPiece = new Pawn(originalPiece.Color);
+						else if (originalPiece is Knight)
+							newPiece = new Knight(originalPiece.Color);
+						else if (originalPiece is Bishop)
+							newPiece = new Bishop(originalPiece.Color);
+						else if (originalPiece is Rook)
+							newPiece = new Rook(originalPiece.Color);
+						else if (originalPiece is Queen)
+							newPiece = new Queen(originalPiece.Color);
+						else if (originalPiece is King)
+							newPiece = new King(originalPiece.Color);
+						else
+							continue;  // Skip if unknown piece type
+
+						targetBoard.SetPiece(x, y, newPiece);
+					}
+				}
 			}
 
-			// Update king position temporarily if it's a king move
-			if (isKingMove)
+			// Copy other relevant state
+			// Castling flags
+			typeof(Board).GetField("whiteKingMoved", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+				.SetValue(targetBoard, whiteKingMoved);
+			typeof(Board).GetField("blackKingMoved", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+				.SetValue(targetBoard, blackKingMoved);
+			typeof(Board).GetField("whiteRookAMoved", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+				.SetValue(targetBoard, whiteRookAMoved);
+			typeof(Board).GetField("whiteRookHMoved", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+				.SetValue(targetBoard, whiteRookHMoved);
+			typeof(Board).GetField("blackRookAMoved", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+				.SetValue(targetBoard, blackRookAMoved);
+			typeof(Board).GetField("blackRookHMoved", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+				.SetValue(targetBoard, blackRookHMoved);
+
+			// En passant
+			if (enPassantTarget != null)
 			{
-				if (color == PieceColor.White)
-					whiteKingPosition = new Position(move.ToX, move.ToY);
-				else
-					blackKingPosition = new Position(move.ToX, move.ToY);
+				Position newTarget = new Position(enPassantTarget.X, enPassantTarget.Y);
+				typeof(Board).GetField("enPassantTarget", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+					.SetValue(targetBoard, newTarget);
 			}
-
-			// Check if the king is in check after this move
-			bool inCheck = IsInCheck(color);
-
-			// Restore board state
-			pieces[move.FromX, move.FromY] = piece;
-			pieces[move.ToX, move.ToY] = capturedPiece;
-
-			// Restore en passant piece if needed
-			if (isEnPassantCapture && enPassantCapturedPiece != null)
-			{
-				pieces[enPassantCapturedPos.X, enPassantCapturedPos.Y] = enPassantCapturedPiece;
-			}
-
-			// Restore king position if it was a king move
-			if (isKingMove)
-			{
-				if (color == PieceColor.White)
-					whiteKingPosition = originalKingPos;
-				else
-					blackKingPosition = originalKingPos;
-			}
-
-			return inCheck;
 		}
 
 		public Piece GetPiece(int x, int y)
