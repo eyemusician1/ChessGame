@@ -385,15 +385,20 @@ namespace ChessGame.Models
 					enPassantTarget.X == move.ToX &&
 					enPassantTarget.Y == move.ToY)
 				{
-					// Capture the pawn that just moved
-					int capturedPawnY = piece.Color == PieceColor.White ? move.ToY - 1 : move.ToY + 1;
+					// For en passant, we need to capture the pawn that just moved two squares
+					// This pawn is located on the same file as the destination square (move.ToX)
+					// but on the same rank as the en passant target (enPassantTarget.Y)
+					int capturedPawnY = piece.Color == PieceColor.White ? move.ToY + 1 : move.ToY - 1;
+
+					// The captured pawn is on the same file as where we're moving, but one square forward/backward 
+					// depending on which color is capturing
 					capturedPiece = pieces[move.ToX, capturedPawnY];
 
 					// Update the move record
 					record.CapturedPiece = capturedPiece;
 					record.EnPassantCapture = true;
 
-					// Use SetPiece to properly update the piece tracking
+					// Remove the captured pawn
 					SetPiece(move.ToX, capturedPawnY, null);
 				}
 			}
